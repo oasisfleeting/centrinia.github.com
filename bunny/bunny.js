@@ -131,6 +131,7 @@ $(document).ready(function() {
 		center[i] /= bunny_model['vertices'].length;
 		}
 	}
+	select_model();
 
 	var lastTime = 0;
 	var xRot = 0;
