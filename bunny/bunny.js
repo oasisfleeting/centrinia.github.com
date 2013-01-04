@@ -20,79 +20,81 @@ $(document).ready(function() {
 			}
 			,dataType: 'text'
 		});
-				if (type == 'x-shader/x-fragment') {
-					shader = context.createShader(context.FRAGMENT_SHADER);
-				} else if (type == 'x-shader/x-vertex') {
-					shader = context.createShader(context.VERTEX_SHADER);
-				} else {
-					return null;
-				}
-
-				context.shaderSource(shader, str);
-				context.compileShader(shader);
-
-				if (!context.getShaderParameter(shader, context.COMPILE_STATUS)) {
-					alert(context.getShaderInfoLog(shader));
-					return null;
-				}
-
-				return shader;
+		if (type == 'x-shader/x-fragment') {
+			shader = context.createShader(context.FRAGMENT_SHADER);
+		} else if (type == 'x-shader/x-vertex') {
+			shader = context.createShader(context.VERTEX_SHADER);
+		} else {
+			return null;
 		}
-			function initialize_shaders(context) {
-				var vertex_shader;
-				var vertex_shader = get_shader(context, 'x-shader/x-vertex', 'vertex.glsl');
-				var fragment_shader = get_shader(context, 'x-shader/x-fragment', 'fragment.glsl');
 
-				var shader_program = webgl_context.createProgram();
-				context.attachShader(shader_program, vertex_shader);
-				context.attachShader(shader_program, fragment_shader);
-				context.linkProgram(shader_program);
+		context.shaderSource(shader, str);
+		context.compileShader(shader);
 
-				if(!context.getProgramParameter(shader_program,context.LINK_STATUS)) {
-					alert('Could not link shaders' + context.getShaderInfoLog(shader_program));
-					return null;
-				}
-			   context.useProgram(shader_program);
+		if (!context.getShaderParameter(shader, context.COMPILE_STATUS)) {
+			alert(context.getShaderInfoLog(shader));
+			return null;
+		}
 
-				return shader_program;
-			}
+		return shader;
+	}
+	function initialize_shaders(context) {
+		var vertex_shader;
+		var vertex_shader = get_shader(context, 'x-shader/x-vertex', 'vertex.glsl');
+		var fragment_shader = get_shader(context, 'x-shader/x-fragment', 'fragment.glsl');
 
-			var webgl_shader_program = initialize_shaders(webgl_context);
+		var shader_program = webgl_context.createProgram();
+		context.attachShader(shader_program, vertex_shader);
+		context.attachShader(shader_program, fragment_shader);
+		context.linkProgram(shader_program);
 
-			webgl_shader_program.vertexPositionAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexPosition");
-			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexPositionAttribute);
+		if(!context.getProgramParameter(shader_program,context.LINK_STATUS)) {
+			alert('Could not link shaders' + context.getShaderInfoLog(shader_program));
+			return null;
+		}
+	   context.useProgram(shader_program);
 
-			webgl_shader_program.vertexNormalAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexNormal");
-			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexNormalAttribute);
-			//webgl_shader_program.vertexColorAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexColor");
-			//webgl_context.enableVertexAttribArray(webgl_shader_program.vertexColorAttribute);
+		return shader_program;
+	}
 
-			webgl_shader_program.pMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uPMatrix");
-			webgl_shader_program.mvMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uMVMatrix");
-			webgl_shader_program.nMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uNMatrix");
-			webgl_shader_program.ambientColorUniform = webgl_context.getUniformLocation(webgl_shader_program, "uAmbientColor");
-			webgl_shader_program.directionalColorUniform = webgl_context.getUniformLocation(webgl_shader_program, "uDirectionalColor");
-			webgl_shader_program.lightingDirectionUniform = webgl_context.getUniformLocation(webgl_shader_program, "uLightingDirection");
-			var webgl_vertex_buffer;
-			var webgl_normal_buffer;
-			var webgl_index_buffer;
+	var webgl_shader_program = initialize_shaders(webgl_context);
 
-			webgl_context.enable(webgl_context.DEPTH_TEST);
+	webgl_shader_program.vertexPositionAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexPosition");
+	webgl_context.enableVertexAttribArray(webgl_shader_program.vertexPositionAttribute);
 
-		function initialize_buffer(context, type, data, datatype) {
-			buffer = context.createBuffer();
-			context.bindBuffer(type, buffer);
-				if(data[0].length) {
-					var flattened_data = data.reduce(function (acc, v) { return acc.concat(v); });
-					buffer.item_size = data[0].length;
-				} else {
-					buffer.item_size = 1;
-					flattened_data = data;
-				}
-				context.bufferData(type,new datatype(flattened_data),context.STATIC_DRAW);
-				buffer.item_count = data.length;
-				return buffer;
-			} 
+	webgl_shader_program.vertexNormalAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexNormal");
+	webgl_context.enableVertexAttribArray(webgl_shader_program.vertexNormalAttribute);
+
+	webgl_shader_program.pMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uPMatrix");
+	webgl_shader_program.mvMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uMVMatrix");
+	webgl_shader_program.nMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uNMatrix");
+	webgl_shader_program.ambientColorUniform = webgl_context.getUniformLocation(webgl_shader_program, "uAmbientColor");
+	webgl_shader_program.directionalColorUniform = webgl_context.getUniformLocation(webgl_shader_program, "uDirectionalColor");
+	webgl_shader_program.lightingDirectionUniform = webgl_context.getUniformLocation(webgl_shader_program, "uLightingDirection");
+	var webgl_vertex_buffer;
+	var webgl_normal_buffer;
+	var webgl_index_buffer;
+
+	webgl_context.enable(webgl_context.DEPTH_TEST);
+
+	webgl_context.enable(webgl_context.CULL_FACE);
+	webgl_context.cullFace(webgl_context.FRONT);
+	webgl_context.frontFace(webgl_context.CW);
+	
+	function initialize_buffer(context, type, data, datatype) {
+		buffer = context.createBuffer();
+		context.bindBuffer(type, buffer);
+		if(data[0].length) {
+			var flattened_data = data.reduce(function (acc, v) { return acc.concat(v); });
+			buffer.item_size = data[0].length;
+		} else {
+			buffer.item_size = 1;
+			flattened_data = data;
+		}
+		context.bufferData(type,new datatype(flattened_data),context.STATIC_DRAW);
+		buffer.item_count = data.length;
+		return buffer;
+	} 
 
 	var center;
 	var bunny_model;
@@ -128,7 +130,7 @@ $(document).ready(function() {
 			return y;
 		});
 		for(var i=0;i<center.length;i++) {
-		center[i] /= bunny_model['vertices'].length;
+			center[i] /= bunny_model['vertices'].length;
 		}
 	}
 	select_model();
@@ -136,12 +138,11 @@ $(document).ready(function() {
 	var lastTime = 0;
 	var xRot = 0;
 	var yRot = 0;
-	var xSpeed = 0.07;
-	var ySpeed = 0.05;
+	var xSpeed = 0.00;
+	var ySpeed = 0.00;
 	var lighting_distance = 10;
 	var lighting_longitude = 0;
 	var lighting_latitude = 0;
-
 
 	function animate() {
         	var timeNow = new Date().getTime();
@@ -161,8 +162,6 @@ $(document).ready(function() {
 		}
 	        lastTime = timeNow;
 	}
-
-
 
 	var redraw = function() {
 // Clear the canvas.
@@ -205,9 +204,6 @@ $(document).ready(function() {
 		mat4.scale(mvMatrix,[5/1,5/1,5/1]);
 		mat4.rotate(mvMatrix, xRot, [1,0,0]);
 		mat4.rotate(mvMatrix, yRot, [0,1,0]);
-		/*mat4.scale(mvMatrix,[1/100,1/100,-1/100]);
-		mat4.rotate(mvMatrix, -Math.PI/2+player.direction_angle, [0,1,0]);
-		mat4.translate(mvMatrix, [-player.viewpoint.coord[0], -player.elevation,-player.viewpoint.coord[1]]);*/
 	
 		webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_vertex_buffer);
 		webgl_context.vertexAttribPointer(webgl_shader_program.vertexPositionAttribute,
@@ -234,6 +230,24 @@ $(document).ready(function() {
 	$('#model_option').change(function() {
 		select_model();
 		redraw();
+	});
+	$(document).keydown(function(e){
+		switch(e.keyCode) {
+			case 37: // Left
+				ySpeed -= 1.0;
+			break;
+			case 38: // Up.
+				xSpeed -= 1.0;
+			break;
+			case 39: // Right
+				ySpeed += 1.0;
+			break;
+			case 40: // Down
+				xSpeed += 1.0;
+
+			break;
+			default: break;
+		}
 	});
 });
 
