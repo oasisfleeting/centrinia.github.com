@@ -231,7 +231,7 @@ $(document).ready(function() {
 	}
 	tick();
 
-	$('#map_option').change(function() {
+	$('#model_option').change(function() {
 		select_model();
 		redraw();
 	});
