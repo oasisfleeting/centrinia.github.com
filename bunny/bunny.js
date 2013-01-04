@@ -95,9 +95,9 @@ $(document).ready(function() {
 			} 
 
 	var center;
+	var bunny_model;
 	function select_model() {
 		var model_filename = $('#model_option').val();
-		var bunny_model;
 
 		$.ajax({async: false,
 			type: 'GET',
