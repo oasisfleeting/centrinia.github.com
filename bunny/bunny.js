@@ -140,9 +140,11 @@ $(document).ready(function() {
 	var yRot = 0;
 	var xSpeed = 0.00;
 	var ySpeed = 0.00;
-	var lighting_distance = 10;
+	var lighting_distance = 5;
 	var lighting_longitude = 0;
 	var lighting_latitude = 0;
+	var lighting_longitude_speed = 31*Math.PI/180;
+	var lighting_latitude_speed = 29*Math.PI/180;
 
 	function animate() {
         	var timeNow = new Date().getTime();
@@ -151,16 +153,10 @@ $(document).ready(function() {
 
 			xRot += (xSpeed * elapsed) / 1000.0;
 			yRot += (ySpeed * elapsed) / 1000.0;
-			lighting_longitude += Math.PI/100;
-			lighting_latitude += Math.PI/79;
-			while(lighting_longitude >= Math.PI*2) {
-				lighting_longitude -= 2*Math.PI;
+			lighting_longitude += (lighting_longitude_speed * elapsed) / 1000.0;
+			lighting_latitude += (lighting_latitude_speed * elapsed) / 1000.0;
 			}
-			while(lighting_latitude >= Math.PI*2) {
-				lighting_latitude -= 2*Math.PI;
-			}
-		}
-	        lastTime = timeNow;
+		lastTime = timeNow;
 	}
 
 	var redraw = function() {
@@ -175,8 +171,8 @@ $(document).ready(function() {
 			webgl_context.uniformMatrix4fv(webgl_shader_program.mvMatrixUniform, false, mv);
 	        	var normalMatrix = mat3.create();
 	        	mat4.toInverseMat3(mvMatrix, normalMatrix);
-        		mat3.transpose(normalMatrix);
-		        webgl_context.uniformMatrix3fv(webgl_shader_program.nMatrixUniform, false, normalMatrix);
+			mat3.transpose(normalMatrix);
+			webgl_context.uniformMatrix3fv(webgl_shader_program.nMatrixUniform, false, normalMatrix);
 
 			webgl_context.uniform3f(
 				webgl_shader_program.ambientColorUniform,
@@ -194,16 +190,16 @@ $(document).ready(function() {
 
 			webgl_context.uniform3f(
 				webgl_shader_program.directionalColorUniform,
-				0.2,0.5,0.7);
+				1.2,1.5,2.7);
 		}
 
 		mat4.perspective(60, webgl_context.viewportWidth / webgl_context.viewportHeight, 0.1, 100.0, pMatrix);
 
 		mat4.identity(mvMatrix);
 		mat4.translate(mvMatrix, [-center[0],-center[1],-center[2]-2])
-		mat4.scale(mvMatrix,[5/1,5/1,5/1]);
 		mat4.rotate(mvMatrix, xRot, [1,0,0]);
 		mat4.rotate(mvMatrix, yRot, [0,1,0]);
+		mat4.scale(mvMatrix,[7/1,7/1,7/1]);
 	
 		webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_vertex_buffer);
 		webgl_context.vertexAttribPointer(webgl_shader_program.vertexPositionAttribute,
@@ -232,21 +228,46 @@ $(document).ready(function() {
 		redraw();
 	});
 	$(document).keydown(function(e){
-		switch(e.keyCode) {
-			case 37: // Left
-				ySpeed -= 1.0;
-			break;
-			case 38: // Up.
-				xSpeed -= 1.0;
-			break;
-			case 39: // Right
-				ySpeed += 1.0;
-			break;
-			case 40: // Down
-				xSpeed += 1.0;
-
-			break;
-			default: break;
+		if(e.altKey) {
+			switch(e.keyCode) {
+				case 37: // Left
+					lighting_longitude_speed += 40*Math.PI/180;
+					e.preventDefault();
+				break;
+				case 38: // Up.
+					lighting_latitude_speed += 40*Math.PI/180;
+					e.preventDefault();
+				break;
+				case 39: // Right
+					lighting_longitude_speed -= 40*Math.PI/180;
+					e.preventDefault();
+				break;
+				case 40: // Down
+					lighting_latitude_speed -= 4*Math.PI/180;
+					e.preventDefault();
+				break;
+				default: break;
+			}
+		} else {
+			switch(e.keyCode) {
+				case 37: // Left
+					ySpeed -= 1.0;
+					e.preventDefault();
+				break;
+				case 38: // Up.
+					xSpeed -= 1.0;
+					e.preventDefault();
+				break;
+				case 39: // Right
+					ySpeed += 1.0;
+					e.preventDefault();
+				break;
+				case 40: // Down
+					xSpeed += 1.0;
+					e.preventDefault();
+				break;
+				default: break;
+			}
 		}
 	});
 });
