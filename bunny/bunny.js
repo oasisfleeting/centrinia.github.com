@@ -3,6 +3,10 @@ $(document).ready(function() {
 	var canvas = document.getElementById(canvas_name);
 
 	var webgl_context = canvas.getContext('experimental-webgl');
+	if(!webgl_context) {
+		alert('Unable to use WebGL.');
+		return;
+	}
 	webgl_context.width = canvas.width;
 	webgl_context.height = canvas.height;
 
