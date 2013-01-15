@@ -6,6 +6,7 @@ var log_traverse_count;
 var canvas;
 var webgl_context;
 
+var use_individual_vertices = true;
 var maximum_draw_count = null;
 var use_wireframe = false;
 var use_texturing = true;
@@ -345,31 +346,42 @@ function Plane(definition) {
 	}
 }
 
-function Leaf(leaf,level) {
+function Leaf(leaf,level,parent_node) {
+	this.depth = parent_node.depth+1;
+	this.parent_node = parent_node;
 	this.visilist_start = leaf['visilist start'];
 	this.face_indexes = leaf['face indexes'];
 }
 
-function Node(node,leaves,level) {
+function Node(node,level,parent_node) {
+	if(parent_node) {
+		this.parent_node = parent_node;
+		this.depth = parent_node.depth+1;
+	} else {
+		this.parent_node = null;
+		this.depth = 0;
+	}
 	this.plane = new Plane(level['planes'][node['plane id']]);
-	this.child_nodes = node['children nodes'].map(
-		function (index) {
-			var definition = level['nodes'][index];
-			if(definition != null) {
-				return new Node(definition,leaves,level);
-			} else {
-				return null;
-			}
-		});
-	this.child_leaves = node['children leaves'].map(
-		function (index) {
-			var definition = level['leaves'][index];
-			if(definition != null) {
-				return leaves[index];
-			} else {
-				return null;
-			}
-		});
+
+	var this_node = this;
+	this.child_nodes = node['children nodes'].map(function (index) {
+		var definition = level['nodes'][index];
+		if(definition != null) {
+			return new Node(definition,level,this_node);
+		} else {
+			return null;
+		}
+	});
+	this.child_leaves = node['children leaves'].map(function (index) {
+		var definition = level['leaves'][index];
+		if(definition != null) {
+			leaf = new Leaf(definition,level,this_node);
+			leaf.index = index;
+			return leaf;
+		} else {
+			return null;
+		}
+	});
 	this.traverse = function (point) {
 		var node = this;
 		var leaf = null;
@@ -381,6 +393,20 @@ function Node(node,leaves,level) {
 			node = node.child_nodes[side];
 		} while(node != null);
 		return leaf;
+	}
+	this.leaves = function () {
+		var accumulator = [];
+		this.child_nodes.forEach(function (node) {
+			if(node != null) {
+				$.extend(accumulator,node.leaves());
+			}
+		});
+		this.child_leaves.forEach(function (leaf) {
+			if(leaf != null) {
+				accumulator[leaf.index] = leaf;
+			}
+		});
+		return accumulator;
 	}
 }
 
@@ -460,32 +486,32 @@ $(document).ready(function() {
 
 			webgl_shader_program.pMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uPMatrix");
 			webgl_shader_program.mvMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uMVMatrix");
+			webgl_shader_program.dummyUniform = webgl_context.getUniformLocation(webgl_shader_program, "uDummy");
 
 			var webgl_vertices;
 			var webgl_colors;
 			var webgl_vertex_buffer;
 			var webgl_color_buffer;
+			webgl_context.enable(webgl_context.CULL_FACE);
+			webgl_context.cullFace(webgl_context.FRONT);
+			if(true) {
 				webgl_context.enable(webgl_context.DEPTH_TEST);
-			/*webgl_context.enable(webgl_context.CULL_FACE);
-			webgl_context.cullFace(webgl_context.FRONT);*/
-		}//}}}
-	}
-	if(use_canvas) {
-// Initialize Canvas.//{{{
-		canvas_context = canvas.getContext('2d');
-		if(!canvas_context) {
-			alert('Unable to use Canvas');
-			use_canvas = false;
-		}//}}}
-	}
+				webgl_context.disable(webgl_context.BLEND);
+			}else {
+				webgl_context.disable(webgl_context.DEPTH_TEST);
+				//webgl_context.enable(webgl_context.DEPTH_TEST);
 
-	use_wireframe = $('#wireframe_option').prop('checked');
-	use_texturing = $('#texturing_option').prop('checked');
+				webgl_context.enable(webgl_context.BLEND);
+				webgl_context.blendFunc(webgl_context.ONE, webgl_context.ZERO);
+			}
+		}//}}}
+	}
 
 	var bsp = null;
 	var faces = null;
 	var leaves = null;
 	var visilist = null;
+	var level = null;
 
 	function load_texture_list(filename)
 	{
@@ -503,7 +529,6 @@ $(document).ready(function() {
 	{
 		var map_name = $('#map_option').val();
 		bsp = null;
-		var level;
 
 		$.ajax({async: false,
 					type: 'GET',
@@ -513,60 +538,86 @@ $(document).ready(function() {
 					dataType: 'json'});
 
 
+		bsp = new Node(level['nodes'][0],level);
+		leaves = bsp.leaves();
+
 		webgl_vertices = [];
 		webgl_colors = [];
 
+		if(!use_individual_vertices) {
 		level['vertices'].forEach(function (vertex) {
 			webgl_vertices.push(vertex);
-			//webgl_vertices.push([vertex[0], vertex[2], vertex[1]]);
 			webgl_colors.push([Math.random(),Math.random(),Math.random()]);
 		});
-		
-		leaves = level['leaves'].map(function (definition) {
+		}
+		/*leaves = level['leaves'].map(function (definition) {
 			return new Leaf(definition,level);
-		});
-		bsp = new Node(level['nodes'][0],leaves,level);
+		});*/
+
+
 		faces = level['faces'].map(
 			function (definition) {
 				var indexes = definition['vertices index'];
+
 				var head = indexes[0];
 				var tail1 = indexes.slice(1,indexes.length-1);
 				var tail2 = indexes.slice(2,indexes.length);
 				var result = new Array(indexes.length-2);
+				var face_color = [Math.random(),Math.random(),Math.random()];
+				
+				function get_index(index) {
+					if(use_individual_vertices) {
+						var result = webgl_vertices.length;
+
+						webgl_vertices.push(level['vertices'][index]);
+						webgl_colors.push(face_color);
+						return result;
+					} else {
+						return index;
+					}
+				}
+				head_index = get_index(head);
 				for(var i=0;i<tail1.length;i++) {
-					result[i] = [head, tail1[i], tail2[i]];
+					var tail1_index = get_index(tail1[i]);
+					var tail2_index = get_index(tail2[i]);
+					result[i] = [head_index, tail1_index, tail2_index];
 				}
 				return result;
 			}
 		);
 		visilist = level['visibility list'];
 // Set up the vertex and color buffers.//{{{
-		function initialize_buffer(context, data, datatype) {
+		function initialize_buffer(context, data, datatype,item_size) {
 			buffer = context.createBuffer();
 			context.bindBuffer(context.ARRAY_BUFFER, buffer);
+			var flattened_data;
 			if(data[0].length) {
-				var flattened_data = data.reduce(function (acc, v) { return acc.concat(v); });
+				/*var flattened_data = data.reduce(function (acc, v) { 
+					return acc.concat(v);
+				});*/
+				flattened_data = [].concat.apply([], data);
 				buffer.item_size = data[0].length;
+				buffer.item_count = data.length;
 			} else {
 				flattened_data = data;
+				buffer.item_size = item_size;
+				buffer.item_count = data.length / buffer.item_size;
 			}
 			context.bufferData(context.ARRAY_BUFFER,new datatype(flattened_data),context.STATIC_DRAW);
-			buffer.item_count = data.length;
 			return buffer;
 		} 
+		console.log('vertex buffer size: ' + webgl_vertices.length);
 // Load the vertices into WebGL.
-		webgl_vertex_buffer = initialize_buffer(webgl_context, webgl_vertices, Float32Array);
+		webgl_vertex_buffer = initialize_buffer(webgl_context, webgl_vertices, Float32Array,3);
 
 // Load the colors into WebGL.
-		webgl_color_buffer = initialize_buffer(webgl_context, webgl_colors, Float32Array);
+		webgl_color_buffer = initialize_buffer(webgl_context, webgl_colors, Float32Array,3);
 		webgl_index_buffer = webgl_context.createBuffer();
-	//	1496 1664 296
+		console.log('color buffer size: ' + webgl_colors.length);
+
 		player_origin = level['player start']['origin'];
 		player_angle = Math.PI*level['player start']['angle']/180;
 		player = new Viewer(player_origin[2],Math.PI/3,player_angle,new Vector2([player_origin[0], player_origin[1]]));
-		//player = new Viewer(296,Math.PI/3,3*Math.PI/2,new Vector2([1432, 1664]));
-	//544 288 32
-		//player = new Viewer(32,Math.PI/3,0,new Vector2([544, 288])); // start.bsp
 		return player;
 	}
 
@@ -611,71 +662,85 @@ $(document).ready(function() {
 			canvas_context.clearRect(0,0,canvas.width,canvas.height);
 		}
 
-		var indexes = [];
 		var position = [player.viewpoint.coord[0], player.viewpoint.coord[1], player.elevation];
 		var leaf = bsp.traverse(position);
 		
-		var visible_leaves = [leaf];
-		var list_index = leaf.visilist_start;
-		for(var i=1;i<leaves.length;list_index++) {
-			if(visilist[list_index] == 0) {
-				i += 8*visilist[list_index+1];
-				list_index++;
-			} else {
-				for(var j=0;j<8;j++,i++) {
-					if(((visilist[list_index] >> j) & 1) != 0) {
-						visible_leaves.push(leaves[i]);
+		var visible_leaves;
+		if(visilist) {
+			visible_leaves = [leaf];
+			var list_index = leaf.visilist_start;
+			for(var i=1;i<leaves.length;list_index++) {
+				if(visilist[list_index] == 0) {
+					i += 8*visilist[list_index+1];
+					list_index++;
+				} else {
+					for(var j=0;j<8;j++,i++) {
+						if(((visilist[list_index] >> j) & 1) != 0) {
+							visible_leaves.push(leaves[i]);
+						}
 					}
 				}
 			}
+		} else {
+			visible_leaves = leaves;
 		}
+		// Find the children of the common ancestor of two leaves. The return value is an array
+		// where the first value is an ancestor of a and the second is an ancestor of b.
+		function common_ancestor(a,b) {
+			var a_ancestor = a;
+			var b_ancestor = b;
+			while(a_ancestor.depth > b_ancestor.depth) {
+				a_ancestor = a_ancestor.parent_node;
+			}
+			while(b_ancestor.depth > a_ancestor.depth) {
+				b_ancestor = b_ancestor.parent_node;
+			}
+			while(a_ancestor.parent_node != null && a_ancestor.parent_node != b_ancestor.parent_node) {
+				a_ancestor = a_ancestor.parent_node;
+				b_ancestor = b_ancestor.parent_node;
+			}
+			var ancestor = a_ancestor.parent_node;
+			var left_side = ancestor.child_nodes[0];
+			if(left_side == null) {
+				left_side = ancestor.child_leaves[0];
+			}
+			return {'ancestor': ancestor,'side': left_side == a_ancestor ? 0 : 1 };
+		}
+		// Sort the leaves.
+		visible_leaves.sort(function (a,b) {
+			var ancestor_information = common_ancestor(a,b);
+			var ancestor = ancestor_information['ancestor'];
+			var side = ancestor.plane.normal_equation(position) > 0 ? 0 : 1;
+			return (side == ancestor_information['side']) ? -1 : 1;
+		});
+		visible_leaves.reverse();
 
+		var dimness = 1.0;
+		//visible_leaves = visible_leaves.slice(0,5);
 		visible_leaves.forEach(function (leaf) {
+		var indexes = [];
+		//leaf.forEach(function (leaf) {
 			leaf.face_indexes.forEach(function(face_index) {
 				faces[face_index].forEach(function(triangle_indexes) {
 					triangle_indexes.forEach(function (vertex_index) {
 						indexes.push(vertex_index);
 					});
-					//indexes.push(faces[index]);
 				});
 			});
-		});
+		//});
 		
-		console.log('visilist start: ' + leaf.visilist_start);
-		console.log('indexes length: ' + indexes.length);
-		/*bsp.traverse(player.viewpoint,function (wall) {
-			  var s = t.map(function (vp) { return draw_wall(vp,wall, function (index) { 
-						 if(use_wireframe) {
-							 indexes.unshift(index+0);
-							 indexes.unshift(index+1);
-							 indexes.unshift(index+1);
-							 indexes.unshift(index+3);
-							 indexes.unshift(index+3);
-							 indexes.unshift(index+2);
-							 indexes.unshift(index+2);
-							 indexes.unshift(index+0);
-						 } else {
-							 indexes.unshift(index);
-							 indexes.unshift(index+2);
-							 indexes.unshift(index+1);
+		webgl_context.uniform1f(webgl_shader_program.dummyUniform,dimness);
 
-							 indexes.unshift(index+3);
-							 indexes.unshift(index+1);
-							 indexes.unshift(index+2);
-						 }
-			  } )} );
-			  if(s.length >0)  {
-					t = s.reduce(function (acc,x) { return acc.concat(x); } );
-			  } else {
-					t = [];
-			  }
-			  return t.length>0;
-		});*/
+		//console.log('visilist start: ' + leaf.visilist_start);
+		//console.log('indexes length: ' + indexes.length);
 
 		webgl_context.bindBuffer(webgl_context.ELEMENT_ARRAY_BUFFER, webgl_index_buffer);
 		webgl_context.bufferData(webgl_context.ELEMENT_ARRAY_BUFFER,new Uint16Array(indexes),webgl_context.STATIC_DRAW);
 		webgl_index_buffer.item_count = indexes.length;
 		webgl_context.drawElements(webgl_context.TRIANGLES, webgl_index_buffer.item_count, webgl_context.UNSIGNED_SHORT, 0);
+
+		//dimness *= 1-5e-2;
+		});
 
 		//console.log('draws: ' + log_draw_count + '; traversals ' + log_traverse_count);
 	};//}}}
