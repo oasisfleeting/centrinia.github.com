@@ -346,7 +346,6 @@ function Plane(definition) {
 }
 
 function Leaf(leaf,level) {
-	this.visilist = level['visibility list'];
 	this.visilist_start = leaf['visilist start'];
 	this.face_indexes = leaf['face indexes'];
 }
@@ -562,7 +561,10 @@ $(document).ready(function() {
 		webgl_color_buffer = initialize_buffer(webgl_context, webgl_colors, Float32Array);
 		webgl_index_buffer = webgl_context.createBuffer();
 	//	1496 1664 296
-		player = new Viewer(296,Math.PI/3,3*Math.PI/2,new Vector2([1432, 1664]));
+		player_origin = level['player start']['origin'];
+		player_angle = Math.PI*level['player start']['angle']/180;
+		player = new Viewer(player_origin[2],Math.PI/3,player_angle,new Vector2([player_origin[0], player_origin[1]]));
+		//player = new Viewer(296,Math.PI/3,3*Math.PI/2,new Vector2([1432, 1664]));
 	//544 288 32
 		//player = new Viewer(32,Math.PI/3,0,new Vector2([544, 288])); // start.bsp
 		return player;
