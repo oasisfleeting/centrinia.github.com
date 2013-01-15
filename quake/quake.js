@@ -5,7 +5,6 @@ var log_draw_count;
 var log_traverse_count;
 var canvas;
 var webgl_context;
-var canvas_context;
 
 var maximum_draw_count = null;
 var use_wireframe = false;
@@ -400,8 +399,7 @@ $(document).ready(function() {
 		} catch (e) {}
 		if(!webgl_context) {
 			alert('Unable to use WebGL');
-			use_webgl = false;
-			use_canvas = true;
+			return
 		} else {
 			webgl_context.viewportWidth = canvas.width;
 			webgl_context.viewportHeight = canvas.height;
