@@ -362,6 +362,7 @@ let {
 	marshall_leaf leaf = JS.toJSObject $
 	[
 		("visilist start", JS.showJSON $ leaf_visilist leaf),
+		("type", JS.showJSON $ leaf_type leaf),
 		("face indexes", JS.showJSON $ face_indices)
 	] where {
 		face_indices = [face_indexes Arr.! (fromIntegral $ leaf_lface_id leaf + i) | i <- [0..leaf_lface_num leaf-1]];
