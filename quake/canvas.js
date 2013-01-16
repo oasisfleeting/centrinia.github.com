@@ -12,6 +12,7 @@ var maximum_draw_count = null;
 var use_wireframe = false;
 var use_texturing = true;
 var use_canvas = true;
+var use_webgl = false;
 var use_noclip = false;
 var use_blending = false;
 
