@@ -450,8 +450,8 @@ $(document).ready(function() {
 			webgl_context.height = canvas_element.height;
 		} catch (e) {}
 		if(!webgl_context) {
-			alert('Unable to use WebGL');
-			return
+			use_webgl = false;
+			use_canvas = true;
 		} else {
 			webgl_context.viewportWidth = canvas_element.width;
 			webgl_context.viewportHeight = canvas_element.height;
