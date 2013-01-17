@@ -16,7 +16,7 @@ var use_webgl = use_canvas;
 //var use_canvas = false;
 //var use_webgl = true;
 var use_noclip = false;
-var use_blending = false;
+var use_blending = true;
 
 //{{{
 var clone = function() {
@@ -635,6 +635,13 @@ $(document).ready(function() {
 		//mat4.perspective(60, webgl_context.viewportWidth / webgl_context.viewportHeight, 0.1, 100.0, pMatrix);
 		mat4.perspective(60, canvas_element.width / canvas_element.height, 0.1, 100.0, pMatrix);
 
+		/*mat4.multiply(
+		[	0,0,0,0,
+			0,1,0,0,
+			1,0,0,0,
+			0,0,0,1
+		],pMatrix,pMatrix);*/
+
 		mat4.identity(mvMatrix);
 		mat4.scale(mvMatrix,[1/100,1/100,1/100]);
 		mat4.rotate(mvMatrix, -Math.PI/2, [1,0,0]);
@@ -650,7 +657,10 @@ $(document).ready(function() {
 			webgl_context.clearColor(0.0, 0.0, 0.0, 1.0);
 			webgl_context.clear(webgl_context.COLOR_BUFFER_BIT | webgl_context.DEPTH_BUFFER_BIT);
 
+
+
 			function setMatrixUniforms(p,mv) {
+			var pMatrix = mat4.create();
 				webgl_context.uniformMatrix4fv(webgl_shader_program.pMatrixUniform, false, p);
 				webgl_context.uniformMatrix4fv(webgl_shader_program.mvMatrixUniform, false, mv);
 			}
@@ -746,6 +756,7 @@ $(document).ready(function() {
 				});
 			});
 			//indexes =[33399, 33402, 33403];
+			//indexes=[[29487, 29488, 29490, 29491]];
 		console.log('indexes length: ' + indexes.length);
 
 			if(use_webgl && webgl_context) {
@@ -772,40 +783,67 @@ $(document).ready(function() {
 					var color = c.map(function (x) { return Math.floor(x*255) % 256; });
 					return 'rgb(' + ~~color[0] + ',' + ~~color[1] + ',' + ~~color[2] + ')';
 				}
-				function project_vertex(vertex) {
+				/*function project_vertex(vertex) {
 					var v = vertex.concat([1]);
 					var projected = new Array(4);
 					mat4.multiplyVec4(mat,v,projected);
-					projected[2] = -projected[2];
+					//projected[2] = -projected[2];
 					var w = projected[3];
-
 					//vec3.scale(projected,1/w);
-					for(var i=0;i<3;i++) {
-						projected[i] /= w;
-					}
-					//vec3.scale(projected,1/w);
-					return projected.slice(0,3);
+					return projected;
 					//return projected.map(function (x) { return x/w;});
-				}
+				}*/
 				function to_screen(projected) {
 					//console.log('(x,y,z) : ' + projected[0] + ',' + projected[1] + ',' + projected[2] + ')');
 					//console.log('(x,y) : ' + (1+projected[0])*cx + ',' + (1-projected[1])*cy + ')');
-					//return [(1+projected[0])*cx,(1-projected[1])*cy];
-					return [(1+projected[0])*cx,(1-projected[1])*cy];
+					var w = projected[3];
+					return [(1+projected[0]/w)*cx,(1-projected[1]/w)*cy];
+					//return [(1+projected[2])*cx,(1-projected[1])*cy];
+				}
+				function vec4_scale(a,b) {
+					var c = new Array(4);
+					for(var i=0;i<4;i++) {
+						c[i] = a[i]*b;
+					}
+					return c[i];
+				}
+				function vec4_dot(a,b) {
+					var c = 0;
+					for(var i=0;i<4;i++) {
+						c += a[i]*b[i];
+					}
+					return c;
+				}
+				function vec4_sub(a,b) {
+					var c = new Array(4);
+					for(var i=0;i<4;i++) {
+						c[i] = a[i]-b[i];
+					}
+					return c;
 				}
 				// Return the real number d such that the intersection is start*(d-1)+end*d
 				function line_plane_intersect_parameter(start,end,normal,dist) {
 					// v = ((p0-l0) . n / (l . n))*l + l0
-					var direction = new Array(3);
-					vec3.subtract(end,start,direction);
-					var denominator = vec3.dot(direction,normal);
+					// v = (((p0.n) - l0.n) / (l . n))*l + l0
+					// The equation of a 2D plane in projective space is n.x-w*d=0 = [n,-d].[x,w]
+					// [n,-d].([l1*t,w1]+[l0*(1-t),w0]) = 0
+					// Adding two vectors in projective space is given by [x0,w0] + [x1,w1] = [x0*w1+x1*w0,w0*w1]
+					var n = normal.concat([-dist]);
+					var direction = vec4_sub(start,end);
+					//var denominator = vec3.dot(direction,normal);
+					var denominator = vec4_dot(direction,n);
 					if(denominator != 0) {
-						var d = (dist - vec3.dot(start,normal)) / denominator;
-						var vector = new Array(3);
-						vec3.scale(direction,d,vector);
-						vec3.add(start,vector,vector);
+						//var t = (dist - vec3.dot(start,normal)) / denominator;
+						t = vec4_dot(n,start) / denominator;
+						//var vector = new Array(3);
+						//vec3.scale(direction,t,vector);
+						//vec3.add(start,vector,vector);
+						var vector = new Array(4);
+						for(var i=0;i<4;i++) {
+							vector[i] = start[i] * (1-t) + end[i]*(t);
+						}
 						return {
-							'd' : d,
+							't' : t,
 							'vector' : vector
 						};
 					} else {
@@ -814,9 +852,12 @@ $(document).ready(function() {
 				}
 				// Slice a polygon with a plane. The ordered list of vertices on the positive side of the plane will be modified.
 				function slice_polygon(vertices,normal,dist) {
+					function dot(v) {
+						return vec3.dot(normal,v) - dist*v[3];
+					}
 					for(var start = 0; 
 						start < vertices.length &&
-						vec3.dot(normal,vertices[start])-dist < 0;
+						dot(vertices[start]) < 0;
 						start++);
 
 					if(start == vertices.length) {
@@ -828,12 +869,12 @@ $(document).ready(function() {
 						var i_start = (i+start) % vertices.length;
 
 
-						if(vec3.dot(normal,vertices[(i_start-1+vertices.length) % vertices.length])-dist < 0) {
+						if(dot(vertices[(i_start-1+vertices.length) % vertices.length]) < 0) {
 							console.log(vertices[(i_start-1+vertices.length)%vertices.length]);
 						}
 
 						for(var culled_count=0;
-							(vec3.dot(normal,vertices[(i_start + culled_count) % vertices.length])-dist < 0) && 
+							(dot(vertices[(i_start + culled_count) % vertices.length]) < 0) && 
 							(culled_count < vertices.length);
 							culled_count++);
 						if(culled_count == vertices.length) {
@@ -856,7 +897,7 @@ $(document).ready(function() {
 								}
 								var v = vi['vector'];
 								// We do not allow for results that are on the negative side of the plane.
-								var displacement = vec3.dot(v,normal)-dist;
+								/*var displacement = dot(v)-dist;
 								if(displacement < 0) {
 								// Interpolate between (v,v0) at 1+displacement*2
 									var t=-displacement*2;
@@ -864,7 +905,7 @@ $(document).ready(function() {
 									vec3.scale(v,1-t,v);
 									vec3.scale(v0,t,v0t);
 									vec3.add(v0t,v,v);
-								}
+								}*/
 								return v;
 							});
 							if(vs.every(function (v) { return v != null; })) {
@@ -888,7 +929,7 @@ $(document).ready(function() {
 				}
 				// Clip the polygon in side [-1,1]^3
 				function clip_polygon(vertices) {
-					var w = 0.98;
+					var w = 0.975;
 					for(var dimension = 0;dimension<3;dimension++) {
 						[-w,w].forEach(function(bound) {
 							// dist = -bound^2 = -1
@@ -898,8 +939,9 @@ $(document).ready(function() {
 								normal[i] = i==dimension ? 1/bound : 0;
 							}
 							slice_polygon(vertices,normal,dist);
+
 // Test to see if every vertex is on the positive side of the clipping plane.
-							if(!vertices.every(
+							/*if(!vertices.every(
 							function(v) {
 								return vec3.dot(v,normal)-dist>=0;
 							}
@@ -907,45 +949,51 @@ $(document).ready(function() {
 							{
 							console.log(vertices);
 							console.log(normal);
-							}
+							}*/
 						});
 					}
 				}
 				function draw_triangle(vertices,color) {
-					var projected = vertices.map(project_vertex);
+					//var projected = vertices.map(project_vertex);
 					var v0 = Array(3);
 					var v1 = Array(3);
 					var n0 = Array(3);
 
 					// v[n] = p[n] - p[n-1]
 					// N[n] = v[n] x v[n+1]
-					vec3.subtract(projected[0], projected[projected.length-1],v0);
-					vec3.subtract(projected[1], projected[0],v1);
-					vec3.cross(v0,v1,n0); // n0 = N[0] = p[-1]p[0] x p[0]p[1]
-					// visibility implies (p[0]p[-1] x p[0]p[1]) . Op[0] < 0
-					if(-vec3.dot(n0,projected[0]) < 0) {
+					vec3.subtract(vertices[0], vertices[vertices.length-1],v0);
+					vec3.subtract(vertices[1], vertices[0],v1);
+					vec3.cross(v0,v1,n0); 
+					vec3.subtract(vertices[0], position,v1);
+					/*if(vec3.dot(n0,v1) < 0)*/ {
 						// We may need to reverse the vertices if they do not follow the right hand rule.
 						var c = Array(3);
 
 						// c . p[0] = c . p[-1]
 						vec3.cross(v0,n0,c);
 						//vec3.scale(c,-1);
-						var dist = vec3.dot(c,projected[0]);
-						if(vec3.dot(c,projected[1]) - dist < 0) {
-							projected.reverse();
+						var dist = vec3.dot(c,vertices[0]);
+						if(vec3.dot(c,vertices[1]) - dist > 0) {
+							//vertices.reverse();
 						}
 
-						if(projected.map(function (v) { 
+						var projected = vertices.map(function (v) { 
+							var p = v.concat([1]);
+
+							mat4.multiplyVec4(mat,p);
+							return p;
+						});
+						/*if(projected.map(function (v) { 
 							return v.slice(0,3).every(function(x) {
-								return -1 <= x && x <= 1; 
+								return -v[3] <= x && x <= v[3]; 
 							}) ? 1 : 0;
-						}).reduce(function (acc,x) { return acc+x; },0) >=1) {
+						}).reduce(function (acc,x) { return acc+x; },0) >=1)*/ {
 							clip_polygon(projected);
 							projected.forEach(function (v) {
 								if(!v.slice(0,3).every(function (x) {
 									return Math.abs(x) <= 1;
 								})) {
-									console.log(v);
+									//console.log(v);
 								}
 							});
 
@@ -959,13 +1007,6 @@ $(document).ready(function() {
 
 
 							for(var j=0;j<projected.length;j++) {
-							if(Math.abs(min_w[3]) > Math.abs(projected[j][3])){
-								min_w = projected[j];
-							}
-							if(Math.abs(max_w[3]) < Math.abs(projected[j][3])){
-								max_w = projected[j];
-							}
-
 								var pos = to_screen(projected[j]);
 								if(j==0) {
 									canvas_context.moveTo(pos[0],pos[1]);
@@ -992,7 +1033,10 @@ $(document).ready(function() {
 						return webgl_vertices[index]; 
 					});
 					var color = webgl_colors[triangle_index[0]];
-					draw_triangle(vertices,color);
+					//if(29487 == triangle_index[0]) 
+					{
+						draw_triangle(vertices,color);
+					}
 				}
 				/*for(var i=0;i<indexes.length;i+=3) {
 					from_indexes(i);
@@ -1000,8 +1044,8 @@ $(document).ready(function() {
 							var min_w = [0,0,0,1/0];
 							var max_w = [0,0,0,0];
 				indexes.forEach(from_indexes);
-		console.log(min_w);
-		console.log(max_w);
+				canvas_context.fillStyle = rgb([1,1,1]);
+				canvas_context.fillRect(0,0,canvas_element.width,5);
 			}
 		}
 
