@@ -1178,7 +1178,7 @@ $(document).ready(function() {
 	});
 	$('#webgl_option').change(function() {
 		if(webgl_context) {
-			webgl_context.clearColor(0.0, 0.0, 0.0, 1.0);
+			webgl_context.clearColor(0.5, 0.5, 0.5, 1.0);
 			webgl_context.clear(webgl_context.COLOR_BUFFER_BIT | webgl_context.DEPTH_BUFFER_BIT);
 		}
 		redraw2();
