@@ -11,8 +11,10 @@ var use_individual_vertices = true;
 var maximum_draw_count = null;
 var use_wireframe = false;
 var use_texturing = true;
-var use_canvas = false;
-var use_webgl = true;
+var use_canvas = true;
+var use_webgl = use_canvas;
+//var use_canvas = false;
+//var use_webgl = true;
 var use_noclip = false;
 var use_blending = false;
 
@@ -235,7 +237,8 @@ function Viewer(elevation,fov,direction,viewpoint,screen_elevations)
 // Move the viewpoint forward.//{{{
 	this.move_forward = function (step, intersection_handler)
 	{
-		var viewbobAmplitude = 2.0;
+		//var viewbobAmplitude = 2.0;
+		var viewbobAmplitude = 0.0;
 		var viewbobFrequency = 1/10;
 		this.stepDistance++;
 		var viewbob = Math.cos(this.stepDistance*2*Math.PI*viewbobFrequency)*viewbobAmplitude;
@@ -246,7 +249,8 @@ function Viewer(elevation,fov,direction,viewpoint,screen_elevations)
 // Move the viewpoint to the left.//{{{
 	this.move_left = function (step, intersection_handler)
 	{
-		var viewbobAmplitude = 2.0;
+		var viewbobAmplitude = 0.0;
+		//var viewbobAmplitude = 0.0;
 		var viewbobFrequency = 1/10;
 		this.stepDistance++;
 		var viewbob = Math.cos(this.stepDistance*2*Math.PI*viewbobFrequency)*viewbobAmplitude;
@@ -294,42 +298,6 @@ function Wall(endpoint0,endpoint1,elevations,color,textures)
 	this.color = color;
 	this.textures = textures;
 }
-
-// Perform texture mapping.//{{{
-// http://stackoverflow.com/questions/4774172/image-manipulation-and-texture-mapping-using-html5-canvas
-function textureMap(ctx, texture, pts) {
-    var tris = [[0, 1, 2], [2, 3, 0]]; // Split in two triangles
-    for (var t=0; t<2; t++) {
-        var pp = tris[t];
-        var x0 = pts[pp[0]].x, x1 = pts[pp[1]].x, x2 = pts[pp[2]].x;
-        var y0 = pts[pp[0]].y, y1 = pts[pp[1]].y, y2 = pts[pp[2]].y;
-        var u0 = pts[pp[0]].u, u1 = pts[pp[1]].u, u2 = pts[pp[2]].u;
-        var v0 = pts[pp[0]].v, v1 = pts[pp[1]].v, v2 = pts[pp[2]].v;
-
-        // Set clipping area so that only pixels inside the triangle will
-        // be affected by the image drawing operation
-        ctx.save(); ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
-        ctx.lineTo(x2, y2); ctx.closePath(); ctx.clip();
-
-        // Compute matrix transform
-        var delta = u0*v1 + v0*u2 + u1*v2 - v1*u2 - v0*u1 - u0*v2;
-        var delta_a = x0*v1 + v0*x2 + x1*v2 - v1*x2 - v0*x1 - x0*v2;
-        var delta_b = u0*x1 + x0*u2 + u1*x2 - x1*u2 - x0*u1 - u0*x2;
-        var delta_c = u0*v1*x2 + v0*x1*u2 + x0*u1*v2 - x0*v1*u2
-                      - v0*u1*x2 - u0*x1*v2;
-        var delta_d = y0*v1 + v0*y2 + y1*v2 - v1*y2 - v0*y1 - y0*v2;
-        var delta_e = u0*y1 + y0*u2 + u1*y2 - y1*u2 - y0*u1 - u0*y2;
-        var delta_f = u0*v1*y2 + v0*y1*u2 + y0*u1*v2 - y0*v1*u2
-                      - v0*u1*y2 - u0*y1*v2;
-
-        // Draw the transformed image
-        ctx.transform(delta_a/delta, delta_d/delta,
-                      delta_b/delta, delta_e/delta,
-                      delta_c/delta, delta_f/delta);
-        ctx.drawImage(texture, 0, 0);
-        ctx.restore();
-    }
-}//}}}
 
 function rgb(color) {
 	return 'rgb(' + ~~color[0] + ',' + ~~color[1] + ',' + ~~color[2] + ')';
@@ -441,13 +409,14 @@ function Node(node,level,parent_node) {
 $(document).ready(function() {
 	var canvas_name = 'canvas';
 	canvas_element = document.getElementById(canvas_name);
+	canvas_element2 = document.getElementById('canvas2');
 
 	if(use_webgl) {
 // Initialize WebGL.//{{{
 		try {
-			webgl_context = canvas_element.getContext('experimental-webgl');
-			webgl_context.width = canvas_element.width;
-			webgl_context.height = canvas_element.height;
+			webgl_context = canvas_element2.getContext('experimental-webgl');
+			webgl_context.width = canvas_element2.width;
+			webgl_context.height = canvas_element2.height;
 		} catch (e) {}
 		if(!webgl_context) {
 			use_webgl = false;
@@ -519,6 +488,7 @@ $(document).ready(function() {
 			var webgl_color_buffer;
 			webgl_context.enable(webgl_context.CULL_FACE);
 			webgl_context.cullFace(webgl_context.FRONT);
+			//webgl_context.cullFace(webgl_context.FRONT_AND_BACK);
 			if(use_blending) {
 				webgl_context.disable(webgl_context.DEPTH_TEST);
 				//webgl_context.enable(webgl_context.DEPTH_TEST);
@@ -535,23 +505,17 @@ $(document).ready(function() {
 		canvas_context = canvas_element.getContext('2d');
 	}
 
+	use_wireframe = $('#wireframe_option').prop('checked');
+
+	//use_webgl = $('#webgl_option').prop('checked');
+	//use_canvas = $('#canvas_option').prop('checked');
+
 	var bsp = null;
 	var faces = null;
 	var leaves = null;
 	var visilist = null;
 	var level = null;
 
-	function load_texture_list(filename)
-	{
-		var result;
-		$.ajax({async: false,
-					type: 'POST',
-					url: 'resources/' + filename,
-					data: null,
-					success: function(d) { result = d; },
-					dataType: 'json'});
-		return result;
-	}
 	var webgl_vertices;
 	var webgl_colors;
 // Select and load a map.//{{{
@@ -592,7 +556,8 @@ $(document).ready(function() {
 				var head = indexes[0];
 				var tail1 = indexes.slice(1,indexes.length-1);
 				var tail2 = indexes.slice(2,indexes.length);
-				var result = new Array(indexes.length-2);
+				var triangles = new Array(indexes.length-2);
+				var edges = new Array(indexes.length);
 				var face_color = [Math.random(),Math.random(),Math.random()];
 				
 				function get_index(index) {
@@ -610,9 +575,12 @@ $(document).ready(function() {
 				for(var i=0;i<tail1.length;i++) {
 					var tail1_index = get_index(tail1[i]);
 					var tail2_index = get_index(tail2[i]);
-					result[i] = [head_index, tail1_index, tail2_index];
+					triangles[i] = [head_index, tail1_index, tail2_index];
+					edges[i+1] = [tail1_index, tail2_index];
 				}
-				return result;
+				edges[0] = [head_index,triangles[0][0]];
+				edges[indexes.length-1] = [triangles[triangles.length-1][2],head_index];
+				return { 'triangles': triangles, 'edges': edges};
 			}
 		);
 		visilist = level['visibility list'];
@@ -636,7 +604,7 @@ $(document).ready(function() {
 			context.bufferData(context.ARRAY_BUFFER,new datatype(flattened_data),context.STATIC_DRAW);
 			return buffer;
 		} 
-		if(use_webgl) {
+		if(use_webgl && webgl_context) {
 // Load the vertices into WebGL.
 			webgl_vertex_buffer = initialize_buffer(webgl_context, webgl_vertices, Float32Array,3);
 
@@ -673,11 +641,13 @@ $(document).ready(function() {
 		mat4.rotate(mvMatrix, Math.PI/2-player.direction_angle, [0,0,1]);
 		mat4.translate(mvMatrix, [-player.viewpoint.coord[0], -player.viewpoint.coord[1], -player.elevation]);
 	
+		//mat4.identity(mvMatrix);
+//pMatrix=[-0.017107263207435608, 1.6590503052034653e-19, 0.0015674764290452003, 0.0015643446240574121, -0.002709524240344763, -1.0474832115039693e-18, -0.009896657429635525, -0.009876883588731289, 0, 0.017320508137345314, -6.13529011016107e-19, -6.123031810470917e-19, 10.528736114501953, -0.5822814106941223, 1.9998770952224731, 2.195681571960449];
 // Clear the automap.
 // Clear the canvas.
-		if(use_webgl) {
-			webgl_context.clearColor(0.0, 0.0, 0.0, 1.0);
+		if(use_webgl && webgl_context) {
 			webgl_context.viewport(0, 0, webgl_context.viewportWidth, webgl_context.viewportHeight);
+			webgl_context.clearColor(0.0, 0.0, 0.0, 1.0);
 			webgl_context.clear(webgl_context.COLOR_BUFFER_BIT | webgl_context.DEPTH_BUFFER_BIT);
 
 			function setMatrixUniforms(p,mv) {
@@ -694,7 +664,8 @@ $(document).ready(function() {
 					webgl_color_buffer.item_size, webgl_context.FLOAT, false, 0, 0);
 
 			setMatrixUniforms(pMatrix,mvMatrix);
-		} else if(use_canvas){
+		}
+		if(use_canvas && canvas_context){
 			canvas_context.clearRect(0,0,canvas.width,canvas.height);
 		}
 
@@ -754,83 +725,283 @@ $(document).ready(function() {
 
 		function render_leaves(leaves) {
 			var indexes = [];
+			var primitive_key = use_wireframe ? 'edges' : 'triangles';
 			leaves.forEach(function (leaf) {
 				leaf.face_indexes.forEach(function(face_index) {
-					faces[face_index].forEach(function(triangle_indexes) {
-						triangle_indexes.forEach(function (vertex_index) {
-							indexes.push(vertex_index);
+					if(use_canvas) {
+						indexes.push(faces[face_index]['edges'].map(function (primitive_indexes) {
+							return primitive_indexes[0];
+						}));
+						/*faces[face_index]['triangles'].forEach(function(primitive_indexes) {
+							indexes.push(primitive_indexes);
+						});*/
+					} else {
+						faces[face_index][primitive_key].forEach(function(primitive_indexes) {
+							/*primitive_indexes.forEach(function (vertex_index) {
+								indexes.push(vertex_index);
+							});*/
+							indexes.push(primitive_indexes);
 						});
-					});
+					}
 				});
 			});
-		//console.log('indexes length: ' + indexes.length);
+			//indexes =[33399, 33402, 33403];
+		console.log('indexes length: ' + indexes.length);
 
-			if(use_webgl) {
+			if(use_webgl && webgl_context) {
 				webgl_context.bindBuffer(webgl_context.ELEMENT_ARRAY_BUFFER, webgl_index_buffer);
-				webgl_context.bufferData(webgl_context.ELEMENT_ARRAY_BUFFER,new Uint16Array(indexes),webgl_context.STATIC_DRAW);
-				webgl_index_buffer.item_count = indexes.length;
-				webgl_context.drawElements(webgl_context.TRIANGLES, webgl_index_buffer.item_count, webgl_context.UNSIGNED_SHORT, 0);
-			} else if(use_canvas) {
-				function rgb(c) {
-					var color = c.map(function (x) { return Math.floor(x*255) % 256; });
-					return 'rgb(' + color[0] + ',' + color[1] + ',' + color[2] + ')';
+				flattened_indexes = [].concat.apply([],indexes);
+
+				webgl_context.bufferData(webgl_context.ELEMENT_ARRAY_BUFFER,new Uint16Array(flattened_indexes),webgl_context.STATIC_DRAW);
+				webgl_index_buffer.item_count = flattened_indexes.length;
+				if(use_wireframe) {
+					webgl_context.drawElements(webgl_context.LINES, webgl_index_buffer.item_count, webgl_context.UNSIGNED_SHORT, 0);
+				} else {
+					webgl_context.drawElements(webgl_context.TRIANGLES, webgl_index_buffer.item_count, webgl_context.UNSIGNED_SHORT, 0);
 				}
-				//var mat = mat4.multiply(pMatrix, mvMatrix);
+			}
+			if(use_canvas && canvas_context) {
 				var mat = mat4.create();
 				mat4.multiply(pMatrix,mvMatrix,mat);
+//mat=[-0.017107263207435608, 1.6590503052034653e-19, 0.0015674764290452003, 0.0015643446240574121, -0.002709524240344763, -1.0474832115039693e-18, -0.009896657429635525, -0.009876883588731289, 0, 0.017320508137345314, -6.13529011016107e-19, -6.123031810470917e-19, 10.528736114501953, -0.5822814106941223, 1.9998770952224731, 2.195681571960449];
+
 				var cx = canvas_element.width/2;
 				var cy = canvas_element.height/2;
-				for(var i=0;i<indexes.length;i+=3) {
-					var triangle_vertices = [];
 
-					var v0 = Array(3);
-					var v1 = Array(3);
-					var c = Array(3);
+				function rgb(c) {
+					var color = c.map(function (x) { return Math.floor(x*255) % 256; });
+					return 'rgb(' + ~~color[0] + ',' + ~~color[1] + ',' + ~~color[2] + ')';
+				}
+				function project_vertex(vertex) {
+					var v = vertex.concat([1]);
+					var projected = new Array(4);
+					mat4.multiplyVec4(mat,v,projected);
+					projected[2] = -projected[2];
+					var w = projected[3];
 
-					vec3.subtract(
-						webgl_vertices[indexes[i+0]],
-						webgl_vertices[indexes[i+1]],
-						v0);
-					vec3.subtract(
-						webgl_vertices[indexes[i+2]],
-						webgl_vertices[indexes[i+0]],
-						v1);
-					vec3.cross(v0,v1,c);
-					vec3.subtract(
-						webgl_vertices[indexes[i+0]],
-						position,
-						v0);
-					if(vec3.dot(c,v0)<0) {
+					//vec3.scale(projected,1/w);
+					for(var i=0;i<3;i++) {
+						projected[i] /= w;
+					}
+					//vec3.scale(projected,1/w);
+					return projected.slice(0,3);
+					//return projected.map(function (x) { return x/w;});
+				}
+				function to_screen(projected) {
+					//console.log('(x,y,z) : ' + projected[0] + ',' + projected[1] + ',' + projected[2] + ')');
+					//console.log('(x,y) : ' + (1+projected[0])*cx + ',' + (1-projected[1])*cy + ')');
+					//return [(1+projected[0])*cx,(1-projected[1])*cy];
+					return [(1+projected[0])*cx,(1-projected[1])*cy];
+				}
+				// Return the real number d such that the intersection is start*(d-1)+end*d
+				function line_plane_intersect_parameter(start,end,normal,dist) {
+					// v = ((p0-l0) . n / (l . n))*l + l0
+					var direction = new Array(3);
+					vec3.subtract(end,start,direction);
+					var denominator = vec3.dot(direction,normal);
+					if(denominator != 0) {
+						var d = (dist - vec3.dot(start,normal)) / denominator;
+						var vector = new Array(3);
+						vec3.scale(direction,d,vector);
+						vec3.add(start,vector,vector);
+						return {
+							'd' : d,
+							'vector' : vector
+						};
+					} else {
+						return null;
+					}
+				}
+				// Slice a polygon with a plane. The ordered list of vertices on the positive side of the plane will be modified.
+				function slice_polygon(vertices,normal,dist) {
+					for(var start = 0; 
+						start < vertices.length &&
+						vec3.dot(normal,vertices[start])-dist < 0;
+						start++);
 
-						for(var j=0;j<3;j++) {
-							var vertex = webgl_vertices[indexes[i+j]].concat([1]);
-							//var projected = mat4.multiplyVec4(mat,vertex);
-							var projected = new Array(4);
-							mat4.multiplyVec4(mat,vertex,projected);
-							var f;
-							var z;
-							z = projected[3];
-							projected = projected.map(function (x) { return (x / z); });
-							//z = projected[2];
-							//projected = projected.map(function (x) { return (x / z); });
-	
-							//if(Math.abs(projected[0]) < 1 && Math.abs(projected[1]) < 1)
-							projected[0] = (projected[0]+1)*cx;
-							projected[1] = (-projected[1]+1)*cy;
-							triangle_vertices.push([projected[0], projected[1],projected[2]]);
+					if(start == vertices.length) {
+							vertices.splice(0,vertices.length);
+							return;
+					}
+					start = (start+1) % vertices.length;
+					for(var i=0;i<vertices.length;) {
+						var i_start = (i+start) % vertices.length;
+
+
+						if(vec3.dot(normal,vertices[(i_start-1+vertices.length) % vertices.length])-dist < 0) {
+							console.log(vertices[(i_start-1+vertices.length)%vertices.length]);
 						}
-						if(triangle_vertices.map(function (x) {
-							return -1<=x[2]&&x[2] <= 1 && 0 <= x[0]&&x[0] <= cx*2&& 0 <= x[1]&&x[1] <= cy*2 ? 1 : 0;
-						}).reduce(function (acc,x) { return acc+x; },0) >= 1) {
-						canvas_context.fillStyle = rgb(webgl_colors[i]);
-						canvas_context.beginPath();
-						canvas_context.moveTo(triangle_vertices[0][0], triangle_vertices[0][1]);
-						canvas_context.lineTo(triangle_vertices[1][0], triangle_vertices[1][1]);
-						canvas_context.lineTo(triangle_vertices[2][0], triangle_vertices[2][1]);
-						canvas_context.fill();
+
+						for(var culled_count=0;
+							(vec3.dot(normal,vertices[(i_start + culled_count) % vertices.length])-dist < 0) && 
+							(culled_count < vertices.length);
+							culled_count++);
+						if(culled_count == vertices.length) {
+							vertices.splice(0,vertices.length);
+							return;
+						}
+						if(culled_count > 0) {
+							var vs = [
+								{ 'index' : -1, 'next' : 1},
+								{ 'index' : culled_count, 'next' : -1}
+							].map(function (i) {
+								var index = (i['index']+i_start+vertices.length)%vertices.length;
+								// This is on the positive side of the plane.
+								var v0 = vertices[index];
+								var v1 = vertices[(index+i['next'] + vertices.length)%vertices.length];
+								var vi = line_plane_intersect_parameter(
+									v0,v1,normal,dist);
+								if(vi == null) {
+									return null;
+								}
+								var v = vi['vector'];
+								// We do not allow for results that are on the negative side of the plane.
+								var displacement = vec3.dot(v,normal)-dist;
+								if(displacement < 0) {
+								// Interpolate between (v,v0) at 1+displacement*2
+									var t=-displacement*2;
+									var v0t = new Array(3);
+									vec3.scale(v,1-t,v);
+									vec3.scale(v0,t,v0t);
+									vec3.add(v0t,v,v);
+								}
+								return v;
+							});
+							if(vs.every(function (v) { return v != null; })) {
+								if(culled_count+i_start<vertices.length) {
+									vertices.splice(i_start,culled_count,vs[0],vs[1]);
+								} else {
+									var l = vertices.length;
+									vertices.splice(i_start,l-i_start,vs[0],vs[1]);
+									vertices.splice(0,culled_count-l+i_start);
+									start = (start-(culled_count-l+i_start)+vertices.length) % vertices.length;
+								}
+								i+=2;
+							} else {
+								console.log(vs);
+								i++;
+							}
+						} else {
+							i++;
 						}
 					}
 				}
+				// Clip the polygon in side [-1,1]^3
+				function clip_polygon(vertices) {
+					var w = 0.98;
+					for(var dimension = 0;dimension<3;dimension++) {
+						[-w,w].forEach(function(bound) {
+							// dist = -bound^2 = -1
+							var normal = new Array(3);
+							var dist = -1;
+							for(var i=0;i<3;i++) {
+								normal[i] = i==dimension ? 1/bound : 0;
+							}
+							slice_polygon(vertices,normal,dist);
+// Test to see if every vertex is on the positive side of the clipping plane.
+							if(!vertices.every(
+							function(v) {
+								return vec3.dot(v,normal)-dist>=0;
+							}
+							))
+							{
+							console.log(vertices);
+							console.log(normal);
+							}
+						});
+					}
+				}
+				function draw_triangle(vertices,color) {
+					var projected = vertices.map(project_vertex);
+					var v0 = Array(3);
+					var v1 = Array(3);
+					var n0 = Array(3);
+
+					// v[n] = p[n] - p[n-1]
+					// N[n] = v[n] x v[n+1]
+					vec3.subtract(projected[0], projected[projected.length-1],v0);
+					vec3.subtract(projected[1], projected[0],v1);
+					vec3.cross(v0,v1,n0); // n0 = N[0] = p[-1]p[0] x p[0]p[1]
+					// visibility implies (p[0]p[-1] x p[0]p[1]) . Op[0] < 0
+					if(-vec3.dot(n0,projected[0]) < 0) {
+						// We may need to reverse the vertices if they do not follow the right hand rule.
+						var c = Array(3);
+
+						// c . p[0] = c . p[-1]
+						vec3.cross(v0,n0,c);
+						//vec3.scale(c,-1);
+						var dist = vec3.dot(c,projected[0]);
+						if(vec3.dot(c,projected[1]) - dist < 0) {
+							projected.reverse();
+						}
+
+						if(projected.map(function (v) { 
+							return v.slice(0,3).every(function(x) {
+								return -1 <= x && x <= 1; 
+							}) ? 1 : 0;
+						}).reduce(function (acc,x) { return acc+x; },0) >=1) {
+							clip_polygon(projected);
+							projected.forEach(function (v) {
+								if(!v.slice(0,3).every(function (x) {
+									return Math.abs(x) <= 1;
+								})) {
+									console.log(v);
+								}
+							});
+
+					//console.log('(r,g,b) : ' + color[0] + ',' + color[1] + ',' + color[2]);
+							if(projected.length<3) {
+								//console.log(projected);
+							} else {
+							canvas_context.fillStyle = rgb(color);
+							canvas_context.strokeStyle = rgb(color);
+							canvas_context.beginPath();
+
+
+							for(var j=0;j<projected.length;j++) {
+							if(Math.abs(min_w[3]) > Math.abs(projected[j][3])){
+								min_w = projected[j];
+							}
+							if(Math.abs(max_w[3]) < Math.abs(projected[j][3])){
+								max_w = projected[j];
+							}
+
+								var pos = to_screen(projected[j]);
+								if(j==0) {
+									canvas_context.moveTo(pos[0],pos[1]);
+								} else {
+									canvas_context.lineTo(pos[0],pos[1]);
+								}
+							}
+
+
+								canvas_context.closePath();
+								if(use_wireframe) {
+									canvas_context.stroke();
+								} else {
+									canvas_context.fill();
+								}
+							}
+						}
+					}
+				}
+				function from_indexes(triangle_index) {
+					//var vertices = indexes.slice(triangle_index,triangle_index+3).
+					var vertices = triangle_index.map(
+					function (index) {
+						return webgl_vertices[index]; 
+					});
+					var color = webgl_colors[triangle_index[0]];
+					draw_triangle(vertices,color);
+				}
+				/*for(var i=0;i<indexes.length;i+=3) {
+					from_indexes(i);
+				}*/
+							var min_w = [0,0,0,1/0];
+							var max_w = [0,0,0,0];
+				indexes.forEach(from_indexes);
+		console.log(min_w);
+		console.log(max_w);
 			}
 		}
 
@@ -851,10 +1022,43 @@ $(document).ready(function() {
 
 		//console.log('draws: ' + log_draw_count + '; traversals ' + log_traverse_count);
 	};//}}}
-	redraw();
+
+	redraw2 = function() {
+	if($('#canvas_option').prop('checked')) {
+		use_webgl = false;
+		use_canvas = !use_webgl;
+		redraw();
+	}
+
+	if($('#webgl_option').prop('checked')) {
+		use_webgl = true;
+		use_canvas = !use_webgl;
+		redraw();
+		use_canvas = true;
+	}
+	}
+	redraw2();
+
+	$('#canvas_option').change(function() {
+		if(canvas_context) {
+			canvas_context.clearRect(0,0,canvas.width,canvas.height);
+		}
+		redraw2();
+	});
+	$('#webgl_option').change(function() {
+		if(webgl_context) {
+			webgl_context.clearColor(0.0, 0.0, 0.0, 1.0);
+			webgl_context.clear(webgl_context.COLOR_BUFFER_BIT | webgl_context.DEPTH_BUFFER_BIT);
+		}
+		redraw2();
+	});
+	$('#wireframe_option').change(function() {
+		use_wireframe = $('#wireframe_option').prop('checked');
+		redraw2();
+	});
 	$('#map_option').change(function() {
 		player = select_map();
-		redraw();
+		redraw2();
 	});
 	function test_intersection(viewpoint,elevation) {
 		return true;
@@ -880,7 +1084,7 @@ $(document).ready(function() {
 			} else {
 				player.turn_left(3*2*Math.PI/360);
 			}
-			redraw();
+			redraw2();
 			e.preventDefault();
 		} else if(e.keyCode == 38) {
 // Up.
@@ -889,7 +1093,7 @@ $(document).ready(function() {
 			} else {
 				player.move_forward(5, test_intersection);
 			}
-			redraw();
+			redraw2();
 			e.preventDefault();
 		} else if(e.keyCode == 39) {
 // Right.
@@ -898,7 +1102,7 @@ $(document).ready(function() {
 			} else {
 				player.turn_left(-3*2*Math.PI/360);
 			}
-			redraw();
+			redraw2();
 			e.preventDefault();
 		} else if(e.keyCode == 40) {
 // Down.
@@ -907,7 +1111,7 @@ $(document).ready(function() {
 			}else {
 				player.move_forward(-5, test_intersection);
 			}
-			redraw();
+			redraw2();
 			e.preventDefault();
 		} 
 	});

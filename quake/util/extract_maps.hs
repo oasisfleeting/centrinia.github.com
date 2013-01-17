@@ -446,7 +446,9 @@ do {
 		header = runGet (load_header input) input;
 		--directory = runGet (load_directory input) $ BL.drop (fromIntegral $ infotableofs header) input;
 	} in do {
-		putStrLn $ JS.encode $ marshall_json header;
+		print $ determinant [[1,2],[3,4]];
+		--putStrLn $ JS.encode $ marshall_json header;
+		
 		--print header;
 		--putStrLn $ entity_contents $ head $ entities_items $ dheader_entities header Data.Map.! "entities";
 		--print $ parse_entity $ entity_contents $ head $ entities_items $ dheader_entities header Data.Map.! "entities";
