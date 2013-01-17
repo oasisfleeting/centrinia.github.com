@@ -312,8 +312,26 @@ function Plane(definition) {
 			result += point[i]*this.normal[i];
 		}
 		return result;
-	}
+	};
 }
+	Plane.prototype.intersect_line = function (start,end) {
+		var n = this.normal.concat([-this.displacement]);
+		var direction = vec4_sub(start,end);
+		var denominator = vec4_dot(direction,n);
+		if(denominator != 0) {
+			var vector = new Array(4);
+			t = vec4_dot(n,start) / denominator;
+			for(var i=0;i<4;i++) {
+				vector[i] = start[i] * (1-t) + end[i]*(t);
+			}
+			return {
+				't' : t,
+				'vector' : vector
+			};
+		} else {
+			return null;
+		}
+	};
 
 function Leaf(leaf,level,parent_node) {
 	this.type = leaf['type'];
@@ -403,6 +421,100 @@ function Node(node,level,parent_node) {
 		});
 		return accumulator;
 	}
+}
+				function vec4_scale(a,b) {
+					var c = new Array(4);
+					for(var i=0;i<4;i++) {
+						c[i] = a[i]*b;
+					}
+					return c;
+				}
+				function vec4_dot(a,b) {
+					var c = 0;
+					for(var i=0;i<4;i++) {
+						c += a[i]*b[i];
+					}
+					return c;
+				}
+				function vec4_add(a,b) {
+					var c = new Array(4);
+					for(var i=0;i<4;i++) {
+						c[i] = a[i]+b[i];
+					}
+					return c;
+				}
+				function vec4_sub(a,b) {
+					var c = new Array(4);
+					for(var i=0;i<4;i++) {
+						c[i] = a[i]-b[i];
+					}
+					return c;
+				}
+function clip_polygon_cascade(vertices, planes) {
+	var pipeline = planes.map(function (plane) {
+		return {
+			'plane' : plane,
+			'last' : null,
+			'previous' : null
+		};
+	});
+	pipeline.push({
+		'plane' : null,
+		'next' : null,
+		'vertices' : []
+	});
+
+
+	for(var i=1;i<pipeline.length;i++) {
+		pipeline[i-1]['next'] = pipeline[i];
+	}
+
+	function dot(plane,v) {
+		return vec3.dot(plane.normal,v) - plane.displacement*v[3];
+	}
+	var advance_pipeline = function(worker,vertex) {
+		if(worker['next']) {
+			if(!worker['previous']) {
+				worker['previous'] = vertex;
+				worker['first'] = vertex;
+			} else {
+				var working = [worker['previous'],vertex];
+
+				// working_vertices = [start,end]
+				var inside = working.map(function (vertex) {
+					//return worker['plane'].normal_equation(vertex) >= 0;
+					return dot(worker['plane'],vertex) >= 0;
+				});
+
+				if(inside[0] ^ inside[1]) {
+					var intersection = Plane.prototype.intersect_line.apply(worker['plane'],working);
+					if(!intersection) {
+						console.log(working);
+						intersection = {'vector':working[1]};
+					}
+					advance_pipeline(worker['next'],intersection['vector']);
+				}
+				if(inside[1]) {
+					advance_pipeline(worker['next'],working[1]);
+				}
+				worker['previous'] = working[1];
+			}
+		} else {
+			worker['vertices'].push(vertex);
+		}
+	};
+	var flush_pipeline = function (worker) {
+		if(worker['next']) {
+			advance_pipeline(worker,worker['first']);
+			flush_pipeline(worker['next']);
+		}
+	}
+	
+	vertices.forEach(function (vertex) {
+		advance_pipeline(pipeline[0],vertex);
+	});
+	flush_pipeline(pipeline[0]);
+	return pipeline[pipeline.length-1]['vertices'];
 }
 
 // Globals.//{{{
@@ -536,13 +648,14 @@ $(document).ready(function() {
 		leaves = bsp.leaves();
 
 		webgl_vertices = [];
+		webgl_normals = [];
 		webgl_colors = [];
 
 		if(!use_individual_vertices) {
-		level['vertices'].forEach(function (vertex) {
-			webgl_vertices.push(vertex);
-			webgl_colors.push([Math.random(),Math.random(),Math.random()]);
-		});
+			level['vertices'].forEach(function (vertex) {
+				webgl_vertices.push(vertex);
+				webgl_colors.push([Math.random(),Math.random(),Math.random()]);
+			});
 		}
 		/*leaves = level['leaves'].map(function (definition) {
 			return new Leaf(definition,level);
@@ -559,13 +672,23 @@ $(document).ready(function() {
 				var triangles = new Array(indexes.length-2);
 				var edges = new Array(indexes.length);
 				var face_color = [Math.random(),Math.random(),Math.random()];
-				
+				var normal = new Array(3);
+				var v0 = new Array(3);
+				var v1 = new Array(3);
+				vec3.subtract(level['vertices'][indexes[indexes.length-1]],level['vertices'][indexes[0]],v0);
+				//vec3.subtract(level['vertices'][indexes[2]],level['vertices'][indexes[1]],v0);
+				vec3.subtract(level['vertices'][indexes[1]],level['vertices'][indexes[0]],v1);
+				vec3.cross(v0,v1,normal);
+						vec3.normalize(normal);
+
 				function get_index(index) {
 					if(use_individual_vertices) {
 						var result = webgl_vertices.length;
 
 						webgl_vertices.push(level['vertices'][index]);
 						webgl_colors.push(face_color);
+
+						webgl_normals.push(normal);
 						return result;
 					} else {
 						return index;
@@ -636,7 +759,7 @@ $(document).ready(function() {
 		mat4.perspective(60, canvas_element.width / canvas_element.height, 0.1, 100.0, pMatrix);
 
 		/*mat4.multiply(
-		[	0,0,0,0,
+		[	0,0,-1,0,
 			0,1,0,0,
 			1,0,0,0,
 			0,0,0,1
@@ -654,7 +777,7 @@ $(document).ready(function() {
 // Clear the canvas.
 		if(use_webgl && webgl_context) {
 			webgl_context.viewport(0, 0, webgl_context.viewportWidth, webgl_context.viewportHeight);
-			webgl_context.clearColor(0.0, 0.0, 0.0, 1.0);
+			webgl_context.clearColor(0.5, 0.5, 0.5, 1.0);
 			webgl_context.clear(webgl_context.COLOR_BUFFER_BIT | webgl_context.DEPTH_BUFFER_BIT);
 
 
@@ -780,7 +903,7 @@ $(document).ready(function() {
 				var cy = canvas_element.height/2;
 
 				function rgb(c) {
-					var color = c.map(function (x) { return Math.floor(x*255) % 256; });
+					var color = c.map(function (x) { return Math.floor(Math.abs(x)*255) % 256; });
 					return 'rgb(' + ~~color[0] + ',' + ~~color[1] + ',' + ~~color[2] + ')';
 				}
 				/*function project_vertex(vertex) {
@@ -800,27 +923,7 @@ $(document).ready(function() {
 					return [(1+projected[0]/w)*cx,(1-projected[1]/w)*cy];
 					//return [(1+projected[2])*cx,(1-projected[1])*cy];
 				}
-				function vec4_scale(a,b) {
-					var c = new Array(4);
-					for(var i=0;i<4;i++) {
-						c[i] = a[i]*b;
-					}
-					return c[i];
-				}
-				function vec4_dot(a,b) {
-					var c = 0;
-					for(var i=0;i<4;i++) {
-						c += a[i]*b[i];
-					}
-					return c;
-				}
-				function vec4_sub(a,b) {
-					var c = new Array(4);
-					for(var i=0;i<4;i++) {
-						c[i] = a[i]-b[i];
-					}
-					return c;
-				}
+
 				// Return the real number d such that the intersection is start*(d-1)+end*d
 				function line_plane_intersect_parameter(start,end,normal,dist) {
 					// v = ((p0-l0) . n / (l . n))*l + l0
@@ -852,6 +955,7 @@ $(document).ready(function() {
 				}
 				// Slice a polygon with a plane. The ordered list of vertices on the positive side of the plane will be modified.
 				function slice_polygon(vertices,normal,dist) {
+					var plane = new Plane({'normal':normal,'dist':dist});
 					function dot(v) {
 						return vec3.dot(normal,v) - dist*v[3];
 					}
@@ -869,9 +973,9 @@ $(document).ready(function() {
 						var i_start = (i+start) % vertices.length;
 
 
-						if(dot(vertices[(i_start-1+vertices.length) % vertices.length]) < 0) {
+						/*if(dot(vertices[(i_start-1+vertices.length) % vertices.length]) < 0) {
 							console.log(vertices[(i_start-1+vertices.length)%vertices.length]);
-						}
+						}*/
 
 						for(var culled_count=0;
 							(dot(vertices[(i_start + culled_count) % vertices.length]) < 0) && 
@@ -890,21 +994,20 @@ $(document).ready(function() {
 								// This is on the positive side of the plane.
 								var v0 = vertices[index];
 								var v1 = vertices[(index+i['next'] + vertices.length)%vertices.length];
-								var vi = line_plane_intersect_parameter(
-									v0,v1,normal,dist);
+								//var vi = plane.intersect_line(v0,v1);
+								var vi = Plane.prototype.intersect_line.apply(plane,[v0,v1]);
+								//var vi = line_plane_intersect_parameter(v0,v1,normal,dist);
 								if(vi == null) {
-									return null;
+									v = v1;
+								} else {
+									var v = vi['vector'];
 								}
-								var v = vi['vector'];
 								// We do not allow for results that are on the negative side of the plane.
-								/*var displacement = dot(v)-dist;
+								/*var displacement = dot(v);
 								if(displacement < 0) {
 								// Interpolate between (v,v0) at 1+displacement*2
 									var t=-displacement*2;
-									var v0t = new Array(3);
-									vec3.scale(v,1-t,v);
-									vec3.scale(v0,t,v0t);
-									vec3.add(v0t,v,v);
+									v = vec4_add(vec4_scale(v,1-t),vec4_scale(v0,t));
 								}*/
 								return v;
 							});
@@ -929,29 +1032,22 @@ $(document).ready(function() {
 				}
 				// Clip the polygon in side [-1,1]^3
 				function clip_polygon(vertices) {
-					var w = 0.975;
-					for(var dimension = 0;dimension<3;dimension++) {
-						[-w,w].forEach(function(bound) {
-							// dist = -bound^2 = -1
+					var planes = [];
+					var w = 1;
+					[-1,1].forEach(function(bound) {
+						[2].forEach(function (dimension)  {
 							var normal = new Array(3);
-							var dist = -1;
+							var dist = -w;
 							for(var i=0;i<3;i++) {
-								normal[i] = i==dimension ? 1/bound : 0;
+								normal[i] = i==dimension ? bound : 0;
 							}
-							slice_polygon(vertices,normal,dist);
-
-// Test to see if every vertex is on the positive side of the clipping plane.
-							/*if(!vertices.every(
-							function(v) {
-								return vec3.dot(v,normal)-dist>=0;
-							}
-							))
-							{
-							console.log(vertices);
-							console.log(normal);
-							}*/
+							planes.push(new Plane({
+								'normal' : normal,
+								'dist' : dist
+							}));
 						});
-					}
+					})
+					return clip_polygon_cascade(vertices,planes);
 				}
 				function draw_triangle(vertices,color) {
 					//var projected = vertices.map(project_vertex);
@@ -964,19 +1060,20 @@ $(document).ready(function() {
 					vec3.subtract(vertices[0], vertices[vertices.length-1],v0);
 					vec3.subtract(vertices[1], vertices[0],v1);
 					vec3.cross(v0,v1,n0); 
+						vec3.scale(n0,-1);
 					vec3.subtract(vertices[0], position,v1);
-					/*if(vec3.dot(n0,v1) < 0)*/ {
 						// We may need to reverse the vertices if they do not follow the right hand rule.
 						var c = Array(3);
 
 						// c . p[0] = c . p[-1]
-						vec3.cross(v0,n0,c);
-						//vec3.scale(c,-1);
+						/*vec3.cross(v0,n0,c);
+						vec3.scale(c,-1);
 						var dist = vec3.dot(c,vertices[0]);
-						if(vec3.dot(c,vertices[1]) - dist > 0) {
-							//vertices.reverse();
-						}
-
+						if(vec3.dot(c,vertices[1]) - dist < 0) {
+							vertices.reverse();
+						}*/
+// Backface culling.
+					/*if(vec3.dot(n0,v1) > 0)*/ {
 						var projected = vertices.map(function (v) { 
 							var p = v.concat([1]);
 
@@ -988,7 +1085,7 @@ $(document).ready(function() {
 								return -v[3] <= x && x <= v[3]; 
 							}) ? 1 : 0;
 						}).reduce(function (acc,x) { return acc+x; },0) >=1)*/ {
-							clip_polygon(projected);
+							projected = clip_polygon(projected);
 							projected.forEach(function (v) {
 								if(!v.slice(0,3).every(function (x) {
 									return Math.abs(x) <= 1;
@@ -1033,19 +1130,9 @@ $(document).ready(function() {
 						return webgl_vertices[index]; 
 					});
 					var color = webgl_colors[triangle_index[0]];
-					//if(29487 == triangle_index[0]) 
-					{
-						draw_triangle(vertices,color);
-					}
+					draw_triangle(vertices,color);
 				}
-				/*for(var i=0;i<indexes.length;i+=3) {
-					from_indexes(i);
-				}*/
-							var min_w = [0,0,0,1/0];
-							var max_w = [0,0,0,0];
 				indexes.forEach(from_indexes);
-				canvas_context.fillStyle = rgb([1,1,1]);
-				canvas_context.fillRect(0,0,canvas_element.width,5);
 			}
 		}
 
