@@ -16,7 +16,7 @@ var use_webgl = use_canvas;
 //var use_canvas = false;
 //var use_webgl = true;
 var use_noclip = false;
-var use_blending = true;
+var use_blending = false;
 
 //{{{
 var clone = function() {
@@ -51,6 +51,10 @@ function to_array(obj) {
 		result[member] = obj[member];
 	}
 	return result;
+}
+
+Math.mod = function(x,y) {
+	return x - y*Math.floor(x/y);
 }
 
 Array.prototype.shuffle = function () {
@@ -577,7 +581,7 @@ $(document).ready(function() {
 				context.linkProgram(shader_program);
 
 				if(!context.getProgramParameter(shader_program,context.LINK_STATUS)) {
-					alert('Could not link shaders' + context.getShaderInfoLog(shader_program));
+					alert('Could not link shaders' + context.getProgramInfoLog(shader_program));
 					return null;
 				}
 			   context.useProgram(shader_program);
@@ -589,15 +593,28 @@ $(document).ready(function() {
 
 			webgl_shader_program.vertexPositionAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexPosition");
 			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexPositionAttribute);
+
 			webgl_shader_program.vertexColorAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexColor");
 			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexColorAttribute);
 
+			webgl_shader_program.vertexTextureRangeAttribute =
+				webgl_context.getAttribLocation(webgl_shader_program, "aVertexTextureRange");
+			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexTextureRangeAttribute);
+
+			webgl_shader_program.vertexTextureCoordinateAttribute =
+				webgl_context.getAttribLocation(webgl_shader_program, "aVertexTextureCoordinate");
+			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexTextrueCoordinateAttribute);
+
+			webgl_shader_program.texture_size_uniform = webgl_context.getUniformLocation(webgl_shader_program, "texture_size");
+			webgl_shader_program.samplerUniform = webgl_context.getUniformLocation(webgl_shader_program, "uSampler");
 			webgl_shader_program.pMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uPMatrix");
 			webgl_shader_program.mvMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uMVMatrix");
 			webgl_shader_program.dummyUniform = webgl_context.getUniformLocation(webgl_shader_program, "uDummy");
 
 			var webgl_vertex_buffer;
 			var webgl_color_buffer;
+			var webgl_texture_coordinate_buffer;
+			var webgl_texture_range_buffer;
 			webgl_context.enable(webgl_context.CULL_FACE);
 			webgl_context.cullFace(webgl_context.FRONT);
 			//webgl_context.cullFace(webgl_context.FRONT_AND_BACK);
@@ -627,9 +644,12 @@ $(document).ready(function() {
 	var leaves = null;
 	var visilist = null;
 	var level = null;
+	var texture_index = null;
 
 	var webgl_vertices;
 	var webgl_colors;
+	var webgl_texture_range;
+	var webgl_texture_coordinate;
 // Select and load a map.//{{{
 	function select_map()
 	{
@@ -638,9 +658,16 @@ $(document).ready(function() {
 
 		$.ajax({async: false,
 					type: 'GET',
-					url: 'maps/' + map_name,
+					url: 'data/' + map_name,
 					data: null,
 					success: function(d) {level=d;},
+					dataType: 'json'});
+
+		$.ajax({async: false,
+					type: 'GET',
+					url: 'data/quake/texture_index.json',
+					data: null,
+					success: function(d) {texture_indexes=d;},
 					dataType: 'json'});
 
 
@@ -650,6 +677,8 @@ $(document).ready(function() {
 		webgl_vertices = [];
 		webgl_normals = [];
 		webgl_colors = [];
+		webgl_texture_coordinate = [];
+		webgl_texture_range = [];
 
 		if(!use_individual_vertices) {
 			level['vertices'].forEach(function (vertex) {
@@ -662,6 +691,10 @@ $(document).ready(function() {
 		});*/
 
 
+		//s = dotproduct(Vertex,vectorS) + distS;    
+		function compute_texture_coord(vertex,vector,dist) {
+			return vec3.dot(vertex,vector)+dist;
+		}
 		faces = level['faces'].map(
 			function (definition) {
 				var indexes = definition['vertices index'];
@@ -679,16 +712,35 @@ $(document).ready(function() {
 				//vec3.subtract(level['vertices'][indexes[2]],level['vertices'][indexes[1]],v0);
 				vec3.subtract(level['vertices'][indexes[1]],level['vertices'][indexes[0]],v1);
 				vec3.cross(v0,v1,normal);
-						vec3.normalize(normal);
+				vec3.normalize(normal);
 
+				var levelname = level['filename'];
+				var texture_index = definition['texture index'];
+				var texinfo = level['textures'][texture_index];
+				var atlas_entry = texture_indexes[levelname][texinfo['miptex index']];
 				function get_index(index) {
 					if(use_individual_vertices) {
 						var result = webgl_vertices.length;
-
-						webgl_vertices.push(level['vertices'][index]);
+						var vertex = level['vertices'][index];
+						webgl_vertices.push(vertex);
 						webgl_colors.push(face_color);
 
-						webgl_normals.push(normal);
+// {"pak0/maps/e1m8.bsp":{"0":{"index":0,"begin":[0,0],"size":[320,192]}
+						// [x,y,w,h]
+						var texrange = atlas_entry['begin'].concat(atlas_entry['size']);
+						webgl_texture_range.push(texrange);
+
+						//s = dotproduct(Vertex,vectorS) + distS;    
+						//t = dotproduct(Vertex,vectorT) + distT;
+						var texcoord = new Array(2); // [s,t]
+						for(var i=0;i<2;i++) {
+							var vector = texinfo['vectors'][i];
+							var dist = texinfo['displacements'][i];
+							//texcoord[i] = Math.mod(compute_texture_coord(vertex,vector,dist),atlas_entry['size'][i]);
+							texcoord[i] = compute_texture_coord(vertex,vector,dist);
+						}
+						webgl_texture_coordinate.push(texcoord);
+
 						return result;
 					} else {
 						return index;
@@ -733,8 +785,36 @@ $(document).ready(function() {
 
 // Load the colors into WebGL.
 			webgl_color_buffer = initialize_buffer(webgl_context, webgl_colors, Float32Array,3);
+			webgl_texture_range_buffer = initialize_buffer(webgl_context, webgl_texture_range, Float32Array,4);
+			webgl_texture_coordinate_buffer = initialize_buffer(webgl_context, webgl_texture_coordinate, Float32Array,2);
 			webgl_index_buffer = webgl_context.createBuffer();
 		}
+
+		function handle_loaded_texture(texture) {
+			webgl_context.bindTexture(webgl_context.TEXTURE_2D, texture);
+			webgl_context.pixelStorei(webgl_context.UNPACK_FLIP_Y_WEBGL, true);
+			webgl_context.texImage2D(
+				webgl_context.TEXTURE_2D, 0, 
+				webgl_context.RGBA, webgl_context.RGBA, webgl_context.UNSIGNED_BYTE, texture.image);
+			webgl_context.texParameteri(
+				webgl_context.TEXTURE_2D, webgl_context.TEXTURE_MAG_FILTER, webgl_context.NEAREST);
+			webgl_context.texParameteri(
+				webgl_context.TEXTURE_2D, webgl_context.TEXTURE_MIN_FILTER, webgl_context.NEAREST);
+			webgl_context.bindTexture(webgl_context.TEXTURE_2D, null);
+		}
+		function init_texture() {
+			texture_atlas = webgl_context.createTexture();
+			texture_atlas.image = new Image();
+			texture_atlas.image.onload = function() {
+				handle_loaded_texture(texture_atlas)
+				webgl_context.uniform2fv(webgl_shader_program.texture_size_uniform, 
+					[texture_atlas.image.width,texture_atlas.image.height]);
+				redraw2();
+			}
+
+			texture_atlas.image.src = "data/quake/texture.png";
+		}
+		init_texture();
 
 		leaves.forEach(function (leaf) {
 			leaf.color = [Math.random(),Math.random(),Math.random(),1];
@@ -795,6 +875,18 @@ $(document).ready(function() {
 			webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_color_buffer);
 			webgl_context.vertexAttribPointer(webgl_shader_program.vertexColorAttribute,
 					webgl_color_buffer.item_size, webgl_context.FLOAT, false, 0, 0);
+
+			webgl_context.activeTexture(webgl_context.TEXTURE0);
+			webgl_context.bindTexture(webgl_context.TEXTURE_2D, texture_atlas);
+			webgl_context.uniform1i(webgl_shader_program.samplerUniform, 0);
+
+			webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_texture_range_buffer);
+			webgl_context.vertexAttribPointer(webgl_shader_program.vertexTextureRangeAttribute,
+					webgl_texture_range_buffer.item_size, webgl_context.FLOAT, false, 0, 0);
+
+			webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_texture_coordinate_buffer);
+			webgl_context.vertexAttribPointer(webgl_shader_program.vertexTextureCoordinateAttribute,
+					webgl_texture_coordinate_buffer.item_size, webgl_context.FLOAT, false, 0, 0);
 
 			setMatrixUniforms(pMatrix,mvMatrix);
 		}
