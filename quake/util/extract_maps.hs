@@ -2,6 +2,10 @@
 --
 
 module Main (main) where {
+import System.FilePath.Posix as FP;
+import Control.Arrow (first,second);
+import System.Exit;
+import System.Environment;
 import Data.Maybe (isNothing);
 import TexturePacking;
 import qualified System.Directory;
@@ -109,6 +113,7 @@ load_entities name input = do {
 };
 
 data Miptex = Miptex {
+	miptex_index :: Integer,
 	miptex_name :: String,
 	miptex_width :: Integer,
 	miptex_height :: Integer,
@@ -148,6 +153,12 @@ data Entity f
 	node_maxs :: [Integer], -- Int16[3]
 	node_firstface :: Integer, -- Word16
 	node_numfaces :: Integer -- Word16	-- counting both sides
+}
+| EntityTexinfo {
+	texinfo_vectors :: [[f]],
+	texinfo_dists :: [f],
+	texinfo_index :: Integer,
+	texinfo_animated :: Integer
 }
 | EntityFace {
 	face_plane_id :: Integer, -- Word16            -- The plane in which the face lies
@@ -225,9 +236,8 @@ load_entity contents "miptex" = do {
 	return $ EntityMiptex {
 		--miptex_offsets = offsets
 		miptex_textures =
-			map (load_miptex . fromIntegral) $
-			filter (>=0) $
-			offsets
+			map (\(index,offset) -> load_miptex (fromIntegral offset) index)
+			$ zip [0..] (filter (>=0) offsets)
 	};
 } where {
 	{-
@@ -241,7 +251,7 @@ load_entity contents "miptex" = do {
 	miptex_height :: Integer,
 	miptex_images :: [BL.Bytestring]
 	-}
-	load_miptex offset = (flip runGet) miptex_contents $
+	load_miptex offset index = (flip runGet) miptex_contents $
 	do {
 		name <- sequence $ replicate 16 getWord8;
 		--name <- sequence $ replicate 16 (getWord8 >>= return . Data.Char.chr . fromIntegral);
@@ -253,6 +263,7 @@ load_entity contents "miptex" = do {
 			filter (\(_,offset) -> offset > 0) $
 			zip [0..3] image_offsets;
 		return $ Miptex {
+			miptex_index = index,
 			miptex_name = map (Data.Char.chr . fromIntegral) $ takeWhile (/=0) name,
 			miptex_width = width,
 			miptex_height = height,
@@ -311,6 +322,23 @@ load_entity _ "nodes" = do {
 	};
 } where {
 	readChild x = if not $ Data.Bits.testBit x 15 then Left x else Right $ -x - 1;
+};
+load_entity _ "texinfo" = do {
+	vector_dist <- sequence $ replicate 2 load_vector_dist;
+	index <- m_fromIntegral getWord32le;
+	animated <- m_fromIntegral getWord32le;
+	return $ EntityTexinfo {
+		texinfo_vectors = map fst vector_dist,
+		texinfo_dists = map snd vector_dist,
+		texinfo_index = index,
+		texinfo_animated = animated
+	};
+} where {
+	load_vector_dist = do {
+		vec <- sequence $ replicate 3 getFloat32le;
+		dist <- getFloat32le;
+		return (vec,dist);
+	};
 };
 load_entity _ "faces" = do {
 	plane_id <- m_fromIntegral $ getWord16le;
@@ -448,8 +476,8 @@ getInt16le = m_fromIntegral getWord16le >>= return . signed 16;
 signed :: Integer -> Integer -> Integer;
 signed n x = if x >= 2^(n-1) then x-2^n else x;
 
-marshall_json :: Header Float -> JS.JSValue;
-marshall_json header =
+marshall_json :: String -> Header Float -> JS.JSValue;
+marshall_json filename header =
 let {
 	marshall_general f name = JS.showJSON $ map (JS.showJSON . f) $ entities_items $ (dheader_entities header) ! name;
 	marshall_vertex vertex = map ($vertex) [vertex_x,vertex_y,vertex_z];
@@ -530,10 +558,36 @@ let {
 	("faces",marshall_general marshall_face "faces"),
 	("nodes",marshall_general marshall_node "nodes"),
 	("visibility list",visilist),
-	("player start",player_start_entity)
+	("player start",player_start_entity),
+	("filename",JS.showJSON filename)
 ];
 
-main =
+-- Placement {placement_begin = (320,0), placement_size = (320,192), placement_item = [("pak0/maps/e1m7.bsp",4)]}
+marshall_texture_index_json :: [Placement [(String,Integer)]] -> JS.JSValue;
+marshall_texture_index_json ps =
+let {
+	filenames =
+		Data.List.union []
+		$ concatMap (\p -> map (\(fn,_) -> fn) (placement_item p)) ps;
+	gather_textures filename = JS.showJSON 
+	$ JS.toJSObject 
+	$ map (first show)
+	$ Data.List.sortBy (compare `on` fst)
+	[ 
+		(index,
+		JS.toJSObject [
+			("index",JS.showJSON $ index),
+			("begin",JS.showJSON $ placement_begin p),
+			("size",JS.showJSON $ placement_size p)
+		])
+	| p <- ps, (fn,index) <- placement_item p, fn == filename];
+} in JS.showJSON $ JS.toJSObject $ [
+(filename, gather_textures filename)
+| filename <- filenames
+];
+
+main = getArgs >>= handle_args;
+{-main =
 do {
 	input <- BL.getContents;
 	let {
@@ -575,31 +629,147 @@ do {
 	$ miptex_textures $ head $ entities_items $ dheader_entities header Data.Map.! "miptex";
 	-}
 	--print $ map miptex_images $ miptex_textures $ head $ entities_items $ dheader_entities header Data.Map.! "miptex";
-	
-	let {
-	do_packing twidth theight = pack_textures (twidth,theight)
-	$ map (\(x,img) -> ((img,(miptex_width x, miptex_height x)),(miptex_width x+padding,miptex_height x+padding)))
-	$ map (\x ->
-		(x, pixelMap (\a -> palette !! fromIntegral a) $ head $ miptex_images $ x)
-	)
-	$ miptex_textures $ head $ entities_items $ dheader_entities header Data.Map.! "miptex";
---query_tree :: ((Integer,Integer) -> a -> b) -> b -> Tree a -> (Integer,Integer) -> b;
-	get_pixel x y =
-		query_tree (\(x',y') (a,(w,h)) -> 
-			if 
-			padding<=x' && x'<w-padding &&
-			padding<=y' && y'<h-padding
-				then pixelAt a (fromIntegral $ x'-padding) (fromIntegral $ y'-padding)
-				else base_color
-		)
-		base_color t (fromIntegral x,fromIntegral y);
-		base=256;
-	base_color = palette !! 0;
-	increment = 16;
-	padding = 2;
-	(tsize,Just t) = head $ dropWhile (\(_,t) -> isNothing t) $ map (\x -> (x,do_packing x x)) [base,base+increment..];
-	} in BS.writeFile "texture.png" $ encodePng $ generateImage get_pixel (fromIntegral tsize) (fromIntegral tsize)
+	BS.writeFile "texture.png" $ encodePng $ pack_textures
+		palette
+		(map (head . miptex_images) $ concat $ map miptex_textures $ entities_items $ dheader_entities header Data.Map.! "miptex");
 	};
-}
+};
+-}
+
+for = flip map;
+
+handle_args [] = exitFailure;
+handle_args
+("--out":outpath
+:"--extract-map"
+:"--palette":palette_filename
+:"--extract-texture":fs) = 
+--handle_args ("--out":outpath:"--extract-map":fs) =
+let {
+	truncate_filepath = FP.joinPath . drop (length filepath_prefix) . FP.splitDirectories;
+	filepath_prefix =
+		Data.List.takeWhile ((==1) . length)
+		$ map (Data.List.union [])
+		$ Data.List.transpose
+		$ map FP.splitDirectories
+		$ fs;
+	out_filename path =
+	let {
+		subpath = truncate_filepath path;
+		fn = FP.takeFileName subpath `FP.replaceExtension` "json" ;
+	} in FP.replaceFileName (outpath </> subpath) fn;
+	padding = 0;
+} in do {
+
+-- Extract the maps.
+	headers <- forM fs $ \filepath -> do {
+		input <- BL.readFile filepath;
+		--print (takeDirectory $ out_filename filepath);
+			System.Directory.createDirectoryIfMissing True (takeDirectory $ out_filename filepath);
+		let {
+			header = runGet (load_header input) input;
+		} in do {
+		--print (out_filename filepath);
+			writeFile (out_filename filepath) $ JS.encode $ marshall_json (truncate_filepath filepath) header;
+			return (filepath,header);
+		}
+	};
+
+	--putStrLn $ JS.encode $ marshall_json filepath header;
+	palette <- BS.readFile palette_filename >>=
+		return .
+		map (\[r,g,b] -> PixelRGBA8 r g b 255) .
+		map (take 3) . takeWhile (not . null) . iterate (drop 3) . BS.unpack;
+
+--print $ length $ sort_nub (compare `on` imageData) $ concat $ images;
+--print $ length $ concat $ images;
+	let {
+	images =
+	--forM fs $ \filename ->
+	for headers $ \(filename,header) ->
+		--input <- BL.readFile filename;
+		let {
+			--header = runGet (load_header input) input;
+			miptexes = concatMap miptex_textures
+				$ entities_items 
+				$ dheader_entities header Data.Map.! "miptex";
+		} in map (\miptex -> ((filename,miptex),  head . miptex_images $ miptex)) miptexes;
+	;
+
+		(tree,texture_image) = pack_textures padding palette 
+		$ map (\g -> (map fst g,snd $ head g))
+		$ sort_group (compare `on` (imageData . snd)) 
+		$ concat 
+		$ images;
+		positions = placements (0,0) 
+			$ map_tree (map (\(fn,miptex) -> (handle_filename fn,miptex_index miptex)) . fst)
+			$ tree;
+		filepath_prefix =
+			Data.List.takeWhile ((==1) . length)
+			$ map (Data.List.union [])
+			$ Data.List.transpose
+			$ map FP.splitDirectories
+			$ fs;
+		handle_filename fn = FP.joinPath $ drop (length filepath_prefix) $ FP.splitDirectories $ fn;
+		{-filepath_suffixes = 
+			map (\(fn,x) -> (x,drop (length filepath_prefix) . splitDirectories $ fn))
+			$ concatMap placement_item
+			$ positions;-}
+	} in do {
+		System.Directory.createDirectoryIfMissing True outpath;
+
+		BS.writeFile (outpath </> "texture.png") $ encodePng texture_image;
+		--mapM print positions;
+		--mapM print filepath_suffixes;
+		--print filepath_prefix;
+		writeFile (outpath </> "texture_index.json") $ JS.encode $ marshall_texture_index_json positions;
+	};
+
+	exitSuccess;
+};
+
+
+sort_group :: (a -> a -> Ordering) -> [a] -> [[a]];
+sort_group cmp = Data.List.groupBy (\x y -> EQ == x `cmp` y) . Data.List.sortBy cmp;
+
+pack_textures :: Integer -> [PixelRGBA8] -> [(a,Image Pixel8)] -> (Tree (a,Image PixelRGBA8),Image PixelRGBA8);
+pack_textures padding palette textures =
+let {
+do_packing :: Integer -> (Integer,Integer) -> [PixelRGBA8] -> [(a,Image Pixel8)]
+-> Maybe (Tree (a, Image PixelRGBA8));
+do_packing padding (width,height) palette textures = let {
+	tree_element (a,img) =
+	let {
+		w = fromIntegral $ imageWidth img;
+		h = fromIntegral $ imageHeight img;
+	} in ((a,img),(w,h));
+	lookup_palette = pixelMap (\a -> palette !! fromIntegral a);
+	tree =
+	pack_boxes (width,height)
+	$ map tree_element
+	$ map (second (lookup_palette))
+	$ textures;
+} in tree;
+
+inside_box (x,y) (w,h) padding = all (\(t,l) -> padding<=t && t<l-padding) [(x,w),(y,h)];
+
+get_pixel x y =
+query_tree (\(x',y') (_,img) -> 
+if inside_box (x',y') (fromIntegral $ imageWidth img,fromIntegral $ imageHeight img) padding
+	{-padding<=x' && x'<w-padding &&
+	padding<=y' && y'<h-padding-}
+		then pixelAt img (fromIntegral $ x'-padding) (fromIntegral $ y'-padding)
+		else base_color
+)
+base_color tree (fromIntegral x,fromIntegral y);
+
+base=256;
+--base_color = palette !! 0;
+base_color = PixelRGBA8 0 0 0 0;
+increment = 16;
+(tsize,Just tree) = head
+	$ dropWhile (\(_,t) -> isNothing t)
+	$ map (\x -> (x,do_packing padding (x,x) palette textures)) [base,base+increment..];
+} in (tree, generateImage get_pixel (fromIntegral tsize) (fromIntegral tsize));
 
 }

@@ -1,4 +1,14 @@
-module TexturePacking (pack_textures,placements,query_tree) where {
+module TexturePacking (
+	pack_boxes,
+	query_tree,
+	map_tree,
+	placements,
+	placement_item,
+	placement_begin,
+	placement_size,
+	Placement,
+	Tree)
+where {
 
 import Control.Monad (mplus,(=<<));
 import Data.Function (on);
@@ -52,7 +62,7 @@ insert item (w,h) t@(Node (w',h') s l r)
 		return $ Node (w',h') s l r'; };
 
 data Placement a
-= Placement (Integer,Integer) (Integer,Integer) a
+= Placement { placement_begin :: (Integer,Integer), placement_size :: (Integer,Integer), placement_item :: a }
 deriving (Show);
 
 placements :: (Integer,Integer) -> Tree a -> [Placement a];
@@ -63,13 +73,18 @@ placements (x,y) (Node _ (Horizontal h) l r) =
 placements (x,y) (Node _ (Vertical w) l r) =
 	placements (x,y) l ++ placements (x+w,y) r;
 
-pack_textures :: (Integer,Integer) -> [(a,(Integer,Integer))] -> Maybe (Tree a);
-pack_textures (w,h) textures = 
+pack_boxes :: (Integer,Integer) -> [(a,(Integer,Integer))] -> Maybe (Tree a);
+pack_boxes (w,h) textures = 
 	(foldl (\acc (item,(w,h)) -> acc >>= insert item (w,h)) (Just (Empty (w,h)))
 	$ reverse
 	$ sortBy (compare `on` (\(_,(w,h)) -> w+h)) 
 	$ textures);
 
+
+map_tree :: (a -> b) -> Tree a -> Tree b;
+map_tree _ (Empty d) = Empty d;
+map_tree f (Leaf d a) = Leaf d (f a);
+map_tree f (Node d s l r) = Node d s (map_tree f l) (map_tree f r);
 
 query_tree :: ((Integer,Integer) -> a -> b) -> b -> Tree a -> (Integer,Integer) -> b;
 query_tree f base (Empty _) _ = base;
