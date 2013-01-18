@@ -2,6 +2,8 @@
 --
 
 module Main (main) where {
+import Data.Maybe (isNothing);
+import TexturePacking;
 import qualified System.Directory;
 import Data.Function (on);
 import Control.Monad;
@@ -550,10 +552,11 @@ do {
 	
 	palette <- BS.readFile "palette.lmp" >>=
 		return .
-		map (\[r,g,b] -> PixelRGB8 r g b) .
-		map (take 3) . takeWhile (not . null) . iterate (drop 3) . BS.unpack;
+		(PixelRGBA8 0 0 0 0:) .
+		map (\[r,g,b] -> PixelRGBA8 r g b 255) .
+		tail . map (take 3) . takeWhile (not . null) . iterate (drop 3) . BS.unpack;
 
-
+	{-
 	mapM_ (\(x,(mip,img)) ->
 	let dirname = "textures/mip_" ++ show mip ++ "/res_" ++ (show $ miptex_width x)++ "x" ++ (show $ miptex_height x);
 	in System.Directory.createDirectoryIfMissing True dirname
@@ -570,8 +573,33 @@ do {
 	(zip [0..] $ miptex_images x)
 	) 
 	$ miptex_textures $ head $ entities_items $ dheader_entities header Data.Map.! "miptex";
+	-}
 	--print $ map miptex_images $ miptex_textures $ head $ entities_items $ dheader_entities header Data.Map.! "miptex";
-	}
+	
+	let {
+	do_packing twidth theight = pack_textures (twidth,theight)
+	$ map (\(x,img) -> ((img,(miptex_width x, miptex_height x)),(miptex_width x+padding,miptex_height x+padding)))
+	$ map (\x ->
+		(x, pixelMap (\a -> palette !! fromIntegral a) $ head $ miptex_images $ x)
+	)
+	$ miptex_textures $ head $ entities_items $ dheader_entities header Data.Map.! "miptex";
+--query_tree :: ((Integer,Integer) -> a -> b) -> b -> Tree a -> (Integer,Integer) -> b;
+	get_pixel x y =
+		query_tree (\(x',y') (a,(w,h)) -> 
+			if 
+			padding<=x' && x'<w-padding &&
+			padding<=y' && y'<h-padding
+				then pixelAt a (fromIntegral $ x'-padding) (fromIntegral $ y'-padding)
+				else base_color
+		)
+		base_color t (fromIntegral x,fromIntegral y);
+		base=256;
+	base_color = palette !! 0;
+	increment = 16;
+	padding = 2;
+	(tsize,Just t) = head $ dropWhile (\(_,t) -> isNothing t) $ map (\x -> (x,do_packing x x)) [base,base+increment..];
+	} in BS.writeFile "texture.png" $ encodePng $ generateImage get_pixel (fromIntegral tsize) (fromIntegral tsize)
+	};
 }
 
 }
