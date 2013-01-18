@@ -2,10 +2,14 @@
 --
 
 module Main (main) where {
+import qualified System.Directory;
+import Data.Function (on);
+import Control.Monad;
 import Text.ParserCombinators.Parsec;
 import Data.Word;
 import Data.Binary.Get;
 import Data.Binary.IEEE754;
+import qualified Data.ByteString as BS;
 import qualified Data.ByteString.Lazy as BL;
 import qualified Data.Char;
 import qualified Data.List;
@@ -14,6 +18,7 @@ import qualified Data.Map;
 import qualified Data.Array as Arr;
 import Data.Map ((!));
 import qualified Text.JSON as JS;
+import Codec.Picture;
 
 data Header f = Header {
 	dheader_version :: Integer,
@@ -91,11 +96,26 @@ load_entities name input = do {
 	};
 } where {
 	load_entity_list name offset size input =
-	if name `elem` ["entities","planes","vertices","visilist","nodes","faces","leaves","lface","edges","ledges","models"] then
-	runGet
-		(load_until $ load_entity name)
-		(BL.take (fromIntegral size) $ BL.drop (fromIntegral offset) input);
+	if name `elem` ["entities","planes","miptex","vertices","visilist","nodes","faces","leaves","lface","edges","ledges","models"] then
+	let {
+		contents = (BL.take (fromIntegral size) $ BL.drop (fromIntegral offset) input);
+	} in case name of {
+		"miptex" -> [runGet (load_entity contents name) (BL.drop (fromIntegral offset) input)];
+		_ -> runGet (load_until $ load_entity contents name) contents;
+	}
 	else [];
+};
+
+data Miptex = Miptex {
+	miptex_name :: String,
+	miptex_width :: Integer,
+	miptex_height :: Integer,
+	miptex_images :: [Image Pixel8]
+	--miptex_images :: [Integer]
+} deriving (Show);
+
+instance (Show a) => Show (Image a) where {
+	show _ = "{image}";
 };
 
 data Entity f
@@ -106,6 +126,10 @@ data Entity f
 	plane_normal :: [f],
 	plane_dist :: f,
 	plane_type :: Integer
+}
+| EntityMiptex {
+	--miptex_offsets :: [Integer]
+	miptex_textures :: [Miptex]
 }
 | EntityVertex {
 	vertex_x :: f,
@@ -173,14 +197,14 @@ data Entity f
 }
 | EntityUndefined String deriving (Show);
 
-load_entity :: String -> Get (Entity Float);
-load_entity "entities" = do {
+load_entity :: BL.ByteString -> String -> Get (Entity Float);
+load_entity _ "entities" = do {
 	str <- getRemainingLazyByteString;
 	return $ EntityEntities {
 		entity_contents = map (Data.Char.chr . fromIntegral) $ BL.unpack $ str
 	};
 };
-load_entity "planes" = do {
+load_entity _ "planes" = do {
 	normal <- sequence $ replicate 3 getFloat32le;
 	dist <- getFloat32le;
 	planetype <- m_fromIntegral getWord32le;
@@ -190,7 +214,67 @@ load_entity "planes" = do {
 		plane_type = planetype
 	};
 };
-load_entity "vertices" = do {
+load_entity contents "miptex" = do {
+	numtex <- m_fromIntegral getInt32le;
+	offsets <- sequence $ replicate (fromIntegral numtex) $ m_fromIntegral getInt32le;
+	--offsets <- sequence $ replicate numtex $ m_fromIntegral getWord32le;
+	--str <- getRemainingLazyByteString;
+	--offsets <- sequence $ replicate 4 $ getInt32le;
+	return $ EntityMiptex {
+		--miptex_offsets = offsets
+		miptex_textures =
+			map (load_miptex . fromIntegral) $
+			filter (>=0) $
+			offsets
+	};
+} where {
+	{-
+	runGet
+		(load_until $ load_entity name)
+		(BL.take (fromIntegral size) $ BL.drop (fromIntegral offset) input);
+	-}
+	{-
+	miptex_name :: String,
+	miptex_width :: Integer,
+	miptex_height :: Integer,
+	miptex_images :: [BL.Bytestring]
+	-}
+	load_miptex offset = (flip runGet) miptex_contents $
+	do {
+		name <- sequence $ replicate 16 getWord8;
+		--name <- sequence $ replicate 16 (getWord8 >>= return . Data.Char.chr . fromIntegral);
+		width <- m_fromIntegral getWord32le;
+		height <- m_fromIntegral getWord32le;
+		image_offsets <- sequence $ replicate 4 $ m_fromIntegral getInt32le;
+		images <- mapM
+			(\(miplevel,offset) -> return $ load_texture miptex_contents width height miplevel offset) $
+			filter (\(_,offset) -> offset > 0) $
+			zip [0..3] image_offsets;
+		return $ Miptex {
+			miptex_name = map (Data.Char.chr . fromIntegral) $ takeWhile (/=0) name,
+			miptex_width = width,
+			miptex_height = height,
+			miptex_images = if width*height > 0 then images 
+			--(fromIntegral $ BL.length miptex_contents, image_offsets)
+			--map (size) images
+			else []
+		};
+	} where {
+		miptex_contents = BL.drop (fromIntegral offset) contents;
+	};
+	load_texture contents width height miplevel offset = 
+	extract_image (fromIntegral width',fromIntegral height') indexes
+	where {
+		indexes = 
+			(BL.take $ fromIntegral size) .
+			(BL.drop $ fromIntegral offset) $
+			contents;
+		width' = width `div` (2^miplevel);
+		height' = height `div` (2^miplevel);
+		size = width' * height';
+	};
+};
+load_entity _ "vertices" = do {
 	x' <- getFloat32le;
 	y' <- getFloat32le;
 	z' <- getFloat32le;
@@ -202,13 +286,13 @@ load_entity "vertices" = do {
 } where {
 	float_bytes = 4;
 };
-load_entity "visilist" = do {
+load_entity _ "visilist" = do {
 	list <- getRemainingLazyByteString;
 	return $ EntityVisibilityList {
 		visibility_list = list
 	}
 };
-load_entity "nodes" = do {
+load_entity _ "nodes" = do {
 	planenum <- m_fromIntegral $ getInt32le;
 	children <- fmap (map readChild) $ sequence $ replicate 2 $ m_fromIntegral getInt16le;
 	mins <- sequence $ replicate 3 $ m_fromIntegral getInt16le;
@@ -226,7 +310,7 @@ load_entity "nodes" = do {
 } where {
 	readChild x = if not $ Data.Bits.testBit x 15 then Left x else Right $ -x - 1;
 };
-load_entity "faces" = do {
+load_entity _ "faces" = do {
 	plane_id <- m_fromIntegral $ getWord16le;
 --           must be in [0,numplanes[ 
 	side <- m_fromIntegral $ getWord16le;
@@ -252,7 +336,7 @@ load_entity "faces" = do {
 		face_lightmap = lightmap
 	};
 };
-load_entity "leaves" = do {
+load_entity _ "leaves" = do {
 	leaftype <- m_fromIntegral getInt32le; -- Special type of leaf
 	vislist <- m_fromIntegral getInt32le; -- Beginning of visibility lists
 	mins <- sequence $ replicate 3 $ m_fromIntegral getInt16le;
@@ -276,25 +360,25 @@ load_entity "leaves" = do {
 		leaf_sndlava = sndlava 
 	}
 };
-load_entity "lface" = do {
+load_entity _ "lface" = do {
 	index <- m_fromIntegral $ getWord16le;
 	return $ EntityFaceListEntry {
 		face_list_index = index
 	};
 };
-load_entity "edges" = do {
+load_entity _ "edges" = do {
 	vertexes <- sequence $ replicate 2 $ m_fromIntegral getWord16le;
 	return $ EntityEdge {
 		edge_vertexes = vertexes
 	};
 };
-load_entity "ledges" = do {
+load_entity _ "ledges" = do {
 	index <- m_fromIntegral getInt32le;
 	return $ EntityEdgeListEntry {
 		edge_list_index = if index<0 then Right (-index) else Left index
 	};
 };
-load_entity "models" = do {
+load_entity _ "models" = do {
 	mins <- sequence $ replicate 3 getFloat32le;
 	maxs <- sequence $ replicate 3 getFloat32le;
 	origin <- sequence $ replicate 3 getFloat32le;
@@ -313,9 +397,17 @@ load_entity "models" = do {
 	};
 };
 
-load_entity s = do {
+load_entity _ s = do {
 	return $ EntityUndefined s;
 };
+
+extract_image :: (Int,Int) -> BL.ByteString -> Image Pixel8;
+extract_image (width,height) indexes =
+let {
+	--get_pixel i j = BL.index indexes (fromIntegral $ j*width+i);
+	get_pixel i j = BL.index indexes (fromIntegral $ pixelBaseIndex image i j);
+	image = generateImage get_pixel width height;
+} in image;
 
 parse_entity :: String -> Either ParseError [Data.Map.Map String String];
 parse_entity input = parse parse_entity "(unknown)" input
@@ -446,7 +538,6 @@ do {
 		header = runGet (load_header input) input;
 		--directory = runGet (load_directory input) $ BL.drop (fromIntegral $ infotableofs header) input;
 	} in do {
-		print $ determinant [[1,2],[3,4]];
 		--putStrLn $ JS.encode $ marshall_json header;
 		
 		--print header;
@@ -454,6 +545,32 @@ do {
 		--print $ parse_entity $ entity_contents $ head $ entities_items $ dheader_entities header Data.Map.! "entities";
 		--print $ entities_items $ dheader_entities header Data.Map.! "entities";
 		--print $ map face_ledge_num $ entities_items $ dheader_entities header Data.Map.! "faces";
+		--print $ 
+	--BS.putStr
+	
+	palette <- BS.readFile "palette.lmp" >>=
+		return .
+		map (\[r,g,b] -> PixelRGB8 r g b) .
+		map (take 3) . takeWhile (not . null) . iterate (drop 3) . BS.unpack;
+
+
+	mapM_ (\(x,(mip,img)) ->
+	let dirname = "textures/mip_" ++ show mip ++ "/res_" ++ (show $ miptex_width x)++ "x" ++ (show $ miptex_height x);
+	in System.Directory.createDirectoryIfMissing True dirname
+	>>
+	BS.writeFile (dirname ++ "/" ++ miptex_name x ++ ".png") img
+	) 
+	$ concat 
+--	$ Data.List.maximumBy (compare `on` BS.length .)
+	$ map (\x -> 
+	map
+	(\(mip,img) ->
+		(x,(mip,encodePng . pixelMap (\a -> palette !! fromIntegral a) $ img))
+	)
+	(zip [0..] $ miptex_images x)
+	) 
+	$ miptex_textures $ head $ entities_items $ dheader_entities header Data.Map.! "miptex";
+	--print $ map miptex_images $ miptex_textures $ head $ entities_items $ dheader_entities header Data.Map.! "miptex";
 	}
 }
 
