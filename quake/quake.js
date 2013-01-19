@@ -906,14 +906,16 @@ $(document).ready(function() {
 		mat4.perspective(60, canvas_element.width / canvas_element.height, 0.1, 100.0, pMatrix);
 
 		/*mat4.multiply(
-		[	0,0,-1,0,
-			0,1,0,0,
-			1,0,0,0,
-			0,0,0,1
+		[	1,0,0,0.5,
+			0,1,0,-0.5,
+			0,0,1,1,
+			0,0,0,0.95
 		],pMatrix,pMatrix);*/
 
 		mat4.identity(mvMatrix);
 		mat4.scale(mvMatrix,[1/100,1/100,1/100]);
+		mat4.rotate(mvMatrix, roll_angle, [0,0,1]);
+		mat4.rotate(mvMatrix, pitch_angle, [1,0,0]);
 		mat4.rotate(mvMatrix, -Math.PI/2, [1,0,0]);
 		mat4.rotate(mvMatrix, Math.PI/2-player.direction_angle, [0,0,1]);
 		mat4.translate(mvMatrix, [-player.viewpoint.coord[0], -player.viewpoint.coord[1], -player.elevation]);
@@ -1345,9 +1347,26 @@ $(document).ready(function() {
 		use_canvas = true;
 	}
 	}
-	//redraw2();
+
+	var lastTime = 0;
+
+	roll_angle = 0;
+	pitch_angle = 0;
+	function animate() {
+     	var timeNow = new Date().getTime();
+	      if (lastTime != 0) {
+			
+			var elapsed = timeNow - lastTime;
+			pitch_angle = Math.sin((Math.sqrt(2)/3)*timeNow/1000.0)*Math.PI*2*(10/360);
+			roll_angle = Math.sin((Math.sqrt(3)/5)*timeNow/1000.0)*Math.PI*2*(6/360);
+			}
+		lastTime = timeNow;
+	}
+
+//redraw2();
 	function tick()
 	{
+		animate();
 		redraw2();
 		window.setTimeout(tick, 1000/24);
 	}

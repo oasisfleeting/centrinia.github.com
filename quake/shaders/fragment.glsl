@@ -13,8 +13,8 @@ uniform sampler2D uSampler;
 
 void main(void) {
 	vec3 uAmbientColor = vec3(0.5,0.5,0.5);
-	vec3 uPointLightingColor = vec3(0.7,0.6,0.5)*2.0;
-	vec3 lantern_color = vec3(0.3,0.3,0.7)*0.5;
+	vec3 uPointLightingColor = vec3(0.7,0.6,0.3)*7.0;
+	vec3 lantern_color = vec3(0.1,0.2,0.7)*60.0;
 
 	vec2 begin = vec2(vTextureRange[0], vTextureRange[1]);
 	vec2 size = vec2(vTextureRange[2], vTextureRange[3]);
