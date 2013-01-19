@@ -102,7 +102,9 @@ load_entities name input = do {
 	};
 } where {
 	load_entity_list name offset size input =
-	if name `elem` ["entities","planes","miptex","vertices","visilist","nodes","faces","leaves","lface","edges","ledges","models"] then
+	if name `elem` [
+		"entities","planes","miptex","vertices","visilist",
+		"nodes","texinfo","faces","leaves","lface","edges","ledges","models"] then
 	let {
 		contents = (BL.take (fromIntegral size) $ BL.drop (fromIntegral offset) input);
 	} in case name of {
@@ -481,6 +483,12 @@ marshall_json filename header =
 let {
 	marshall_general f name = JS.showJSON $ map (JS.showJSON . f) $ entities_items $ (dheader_entities header) ! name;
 	marshall_vertex vertex = map ($vertex) [vertex_x,vertex_y,vertex_z];
+	marshall_texinfo texinfo = JS.toJSObject $
+	[
+		("vectors",JS.showJSON $ texinfo_vectors texinfo),
+		("displacements",JS.showJSON $ texinfo_dists texinfo),
+		("miptex index",JS.showJSON $ texinfo_index texinfo)
+	];
 	marshall_leaf leaf = JS.toJSObject $
 	[
 		("visilist start", JS.showJSON $ leaf_visilist leaf),
@@ -499,7 +507,8 @@ let {
 	[
 		("plane id", JS.showJSON $ face_plane_id face),
 		("front side", JS.showJSON $ face_side_front face),
-		("vertices index", JS.showJSON $ face_vertices)
+		("vertices index", JS.showJSON $ face_vertices),
+		("texture index", JS.showJSON $ face_texinfo_id face)
 		{-
 		face_plane_id = plane_id,
 		face_side_front = side == 0,
@@ -557,6 +566,7 @@ let {
 	("planes",marshall_general marshall_plane "planes"),
 	("faces",marshall_general marshall_face "faces"),
 	("nodes",marshall_general marshall_node "nodes"),
+	("textures",marshall_general marshall_texinfo "texinfo"),
 	("visibility list",visilist),
 	("player start",player_start_entity),
 	("filename",JS.showJSON filename)
@@ -770,6 +780,14 @@ increment = 16;
 (tsize,Just tree) = head
 	$ dropWhile (\(_,t) -> isNothing t)
 	$ map (\x -> (x,do_packing padding (x,x) palette textures)) [base,base+increment..];
-} in (tree, generateImage get_pixel (fromIntegral tsize) (fromIntegral tsize));
+resize_image img =
+let {
+	iwidth = imageWidth img;
+	iheight = imageHeight img;
+	isize' = max iwidth iheight;
+	isize = head $ dropWhile (<isize') $ iterate (*2) 1;
+	f x y = if x<iwidth && y<iheight then pixelAt img x y else base_color;
+} in generateImage f isize isize;
+} in (tree, resize_image$ generateImage get_pixel (fromIntegral tsize) (fromIntegral tsize));
 
 }

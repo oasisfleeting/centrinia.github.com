@@ -1,23 +1,27 @@
 
 attribute vec3 aVertexPosition;
-attribute vec4 aVertexColor;
+attribute vec3 aVertexColor;
+attribute vec3 aVertexNormal;
 attribute vec4 aVertexTextureRange;
 attribute vec2 aVertexTextureCoordinate;
 
 uniform mat4 uMVMatrix;
+uniform mat3 uNMatrix;
 uniform mat4 uPMatrix;
+
 uniform vec2 texture_size;
 
-varying vec4 vColor;
+varying vec3 vTransformedNormal;
+
 varying vec2 vTextureCoord;
 varying vec4 vTextureRange;
+varying vec4 view_position;
 
 void main(void) {
-	gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
-	vColor = aVertexColor;
-	vec2 begin = vec2(aVertexTextureRange[0], aVertexTextureRange[1]);
-	vec2 size = vec2(aVertexTextureRange[2], aVertexTextureRange[3]);
+	view_position = uMVMatrix * vec4(aVertexPosition,1.0);
+	gl_Position = uPMatrix * view_position;
 
+	vTransformedNormal = normalize(uNMatrix * aVertexNormal);
 	vTextureRange = aVertexTextureRange;
 	vTextureCoord = aVertexTextureCoordinate;
 }

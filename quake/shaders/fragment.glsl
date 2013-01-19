@@ -1,38 +1,40 @@
-// http://learningwebgl.com/blog/?p=28
 precision mediump float;
 
-varying vec4 vColor;
+//varying vec4 vColor;
 uniform vec4 uDummy;
 uniform vec2 texture_size;
 
 varying vec2 vTextureCoord;
 varying vec4 vTextureRange;
+varying vec3 vTransformedNormal;
+varying vec4 view_position;
 
 uniform sampler2D uSampler;
 
 void main(void) {
+	vec3 uAmbientColor = vec3(0.5,0.5,0.5);
+	vec3 uPointLightingColor = vec3(0.7,0.6,0.5)*2.0;
+	vec3 lantern_color = vec3(0.3,0.3,0.7)*0.5;
+
 	vec2 begin = vec2(vTextureRange[0], vTextureRange[1]);
 	vec2 size = vec2(vTextureRange[2], vTextureRange[3]);
 
-	//gl_FragColor = texture2D(uSampler, mod(vTextureCoord,size)+begin);
-	//gl_FragColor = texture2D(uSampler, (vTextureCoord - floor(vTextureCoord/64.0))/2048.0);
-	//gl_FragColor = texture2D(uSampler, (fract((vTextureCoord-begin)/size)+begin/size)/2048.0);
-	//gl_FragColor = texture2D(uSampler, ((-vTextureCoord)/2048.0));
+	vec3 lightDirection = normalize(vec3(0,0,-1)-view_position.xyz);
+
+	float directionalLightWeighting = max(dot(vTransformedNormal, lightDirection), 0.0);
 	
+	float inverse_square = pow(length(view_position.xyz),-2.0);
+	vec3 lightWeighting = uAmbientColor + 
+		uPointLightingColor * directionalLightWeighting +
+		lantern_color * inverse_square;
+		      
+
 	// Coordinates for the inside of a patch. Inside [0,1)^2
-	//vec2 patch_coord = fract(vec2(vTextureCoord.t,vTextureCoord.s)/size);
-	// Only negate the t coordinate.
-	//vec2 patch_coord = fract(vec2(vTextureCoord.s,vTextureCoord.t)/size);
 	vec2 patch_coord = fract(vTextureCoord/size);
 	vec2 atlas_coord = (patch_coord*size+begin)/texture_size;
-	gl_FragColor = texture2D(uSampler, vec2(atlas_coord.s,-atlas_coord.t));
 
-
-	/*gl_FragColor = texture2D(uSampler, vec2(
-		mod(vTextureCoord.s,size.s)/2048.0,
-		mod(vTextureCoord.t,size.t)/2048.0
-	));*/
-	//gl_FragColor = texture2D(uSampler, vec2(vTextureCoord.s,vTextureCoord.t));
-	//gl_FragColor = vColor;
-	//gl_FragColor = uDummy;
+	vec4 texcolor = texture2D(uSampler, vec2(atlas_coord.s,-atlas_coord.t));
+	//texcolor = vec4(1,1,1,1)*0.5;
+	//texcolor = vec4((vTransformedNormal+1.0)/2.0,1.0);
+	gl_FragColor = vec4(texcolor.rgb*lightWeighting,texcolor.a);
 }

@@ -241,8 +241,7 @@ function Viewer(elevation,fov,direction,viewpoint,screen_elevations)
 // Move the viewpoint forward.//{{{
 	this.move_forward = function (step, intersection_handler)
 	{
-		//var viewbobAmplitude = 2.0;
-		var viewbobAmplitude = 0.0;
+		var viewbobAmplitude = 2.0;
 		var viewbobFrequency = 1/10;
 		this.stepDistance++;
 		var viewbob = Math.cos(this.stepDistance*2*Math.PI*viewbobFrequency)*viewbobAmplitude;
@@ -253,8 +252,7 @@ function Viewer(elevation,fov,direction,viewpoint,screen_elevations)
 // Move the viewpoint to the left.//{{{
 	this.move_left = function (step, intersection_handler)
 	{
-		var viewbobAmplitude = 0.0;
-		//var viewbobAmplitude = 0.0;
+		var viewbobAmplitude = 2.0;
 		var viewbobFrequency = 1/10;
 		this.stepDistance++;
 		var viewbob = Math.cos(this.stepDistance*2*Math.PI*viewbobFrequency)*viewbobAmplitude;
@@ -594,8 +592,11 @@ $(document).ready(function() {
 			webgl_shader_program.vertexPositionAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexPosition");
 			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexPositionAttribute);
 
-			webgl_shader_program.vertexColorAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexColor");
-			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexColorAttribute);
+			/*webgl_shader_program.vertexColorAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexColor");
+			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexColorAttribute);*/
+
+			webgl_shader_program.vertexNormalAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexNormal");
+			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexNormalAttribute);
 
 			webgl_shader_program.vertexTextureRangeAttribute =
 				webgl_context.getAttribLocation(webgl_shader_program, "aVertexTextureRange");
@@ -609,14 +610,14 @@ $(document).ready(function() {
 			webgl_shader_program.samplerUniform = webgl_context.getUniformLocation(webgl_shader_program, "uSampler");
 			webgl_shader_program.pMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uPMatrix");
 			webgl_shader_program.mvMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uMVMatrix");
-			webgl_shader_program.dummyUniform = webgl_context.getUniformLocation(webgl_shader_program, "uDummy");
+			webgl_shader_program.nMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uNMatrix");
 
 			var webgl_vertex_buffer;
-			var webgl_color_buffer;
+			//var webgl_color_buffer;
 			var webgl_texture_coordinate_buffer;
 			var webgl_texture_range_buffer;
-			webgl_context.enable(webgl_context.CULL_FACE);
-			webgl_context.cullFace(webgl_context.FRONT);
+			//webgl_context.enable(webgl_context.CULL_FACE);
+			//webgl_context.cullFace(webgl_context.FRONT);
 			//webgl_context.cullFace(webgl_context.FRONT_AND_BACK);
 			if(use_blending) {
 				webgl_context.disable(webgl_context.DEPTH_TEST);
@@ -680,12 +681,6 @@ $(document).ready(function() {
 		webgl_texture_coordinate = [];
 		webgl_texture_range = [];
 
-		if(!use_individual_vertices) {
-			level['vertices'].forEach(function (vertex) {
-				webgl_vertices.push(vertex);
-				webgl_colors.push([Math.random(),Math.random(),Math.random()]);
-			});
-		}
 		/*leaves = level['leaves'].map(function (definition) {
 			return new Leaf(definition,level);
 		});*/
@@ -695,6 +690,49 @@ $(document).ready(function() {
 		function compute_texture_coord(vertex,vector,dist) {
 			return vec3.dot(vertex,vector)+dist;
 		}
+		level['leaves'].forEach(function (leaf) {
+			var center = [0,0,0];
+			var count = 0;
+			leaf['face indexes']
+			.forEach(function (index) {
+				var face_definition = level['faces'][index];
+				var vertexes = face_definition['vertices index']
+					.map(function (index) { return level['vertices'][index]; });
+				vertexes.forEach(function (vertex) {
+					for(var i=0;i<3;i++) {
+						center[i] += vertex[i];
+						count++;
+					}
+				});
+			});
+			for(var i=0;i<3;i++) {
+				center[i] /= count;
+			}
+			//console.log(leaf);
+			leaf['face indexes']
+			.forEach(function (index) {
+				var face_definition = level['faces'][index];
+				var vertexes = face_definition['vertices index']
+					.map(function (index) { return level['vertices'][index]; });
+				var v0 = new Array(3);
+				var v1 = new Array(3);
+				var face_normal = new Array(3);
+				var dist;
+						//var vertex = level['vertices'][index];
+				vec3.subtract(vertexes[0],vertexes[1],v0);
+				var i=2;
+				do {
+					vec3.subtract(vertexes[i],vertexes[1],v1);
+					vec3.cross(v0,v1,face_normal);
+					i++;
+				} while(i < vertexes.length && face_normal == [0,0,0]);
+
+				dist = vec3.dot(face_normal, vertexes[1]);
+				face_definition.flipped = vec3.dot(face_normal, center) - dist < 0;
+				face_definition.face_normal = face_normal;
+				//console.log(face_definition);
+			})
+		});
 		faces = level['faces'].map(
 			function (definition) {
 				var indexes = definition['vertices index'];
@@ -705,14 +743,41 @@ $(document).ready(function() {
 				var triangles = new Array(indexes.length-2);
 				var edges = new Array(indexes.length);
 				var face_color = [Math.random(),Math.random(),Math.random()];
-				var normal = new Array(3);
+				var face_normal = new Array(3);
+				var face_tangent  = new Array(3);
 				var v0 = new Array(3);
 				var v1 = new Array(3);
-				vec3.subtract(level['vertices'][indexes[indexes.length-1]],level['vertices'][indexes[0]],v0);
-				//vec3.subtract(level['vertices'][indexes[2]],level['vertices'][indexes[1]],v0);
-				vec3.subtract(level['vertices'][indexes[1]],level['vertices'][indexes[0]],v1);
-				vec3.cross(v0,v1,normal);
-				vec3.normalize(normal);
+				//vec3.subtract(level['vertices'][indexes[indexes.length-1]],level['vertices'][indexes[0]],v0);
+				/*if(definition.face_normal) {
+					face_normal = definition.face_normal;
+					console.log(face_normal);
+				} else*/ {
+					var j=0;
+					do {
+						vec3.subtract(level['vertices'][indexes[j]],level['vertices'][indexes[j+1]],v0);
+
+					var i=2+j;
+					do {
+						vec3.subtract(level['vertices'][indexes[i]],level['vertices'][indexes[j+1]],v1);
+						vec3.cross(v0,v1,face_normal);
+						i++;
+					} while(i < indexes.length && (vec3.length(face_normal) < 1e-2));
+
+					//vec3.subtract(level['vertices'][indexes[1]],level['vertices'][indexes[0]],v1);
+					vec3.cross(v0,v1,face_normal);
+					} while(j+2 < indexes.length && vec3.length(face_normal) < 1e-2);
+					//face_normal = [1,1,1];
+				}
+
+				/*vec3.cross(v0,face_normal,face_tangent);
+				if(vec3.dot(v1,face_tangent) > 0) {
+					//vec3.scale(face_normal,-1);
+				}*/
+				face_normal = vec3.normalize(face_normal);
+
+				/*if(!definition.flipped) {
+					vec3.scale(face_normal,-1);
+				}*/
 
 				var levelname = level['filename'];
 				var texture_index = definition['texture index'];
@@ -724,6 +789,7 @@ $(document).ready(function() {
 						var vertex = level['vertices'][index];
 						webgl_vertices.push(vertex);
 						webgl_colors.push(face_color);
+						webgl_normals.push(face_normal);
 
 // {"pak0/maps/e1m8.bsp":{"0":{"index":0,"begin":[0,0],"size":[320,192]}
 						// [x,y,w,h]
@@ -784,7 +850,8 @@ $(document).ready(function() {
 			webgl_vertex_buffer = initialize_buffer(webgl_context, webgl_vertices, Float32Array,3);
 
 // Load the colors into WebGL.
-			webgl_color_buffer = initialize_buffer(webgl_context, webgl_colors, Float32Array,3);
+			//webgl_color_buffer = initialize_buffer(webgl_context, webgl_colors, Float32Array,3);
+			webgl_normal_buffer = initialize_buffer(webgl_context, webgl_normals, Float32Array,3);
 			webgl_texture_range_buffer = initialize_buffer(webgl_context, webgl_texture_range, Float32Array,4);
 			webgl_texture_coordinate_buffer = initialize_buffer(webgl_context, webgl_texture_coordinate, Float32Array,2);
 			webgl_index_buffer = webgl_context.createBuffer();
@@ -863,30 +930,42 @@ $(document).ready(function() {
 
 
 			function setMatrixUniforms(p,mv) {
-			var pMatrix = mat4.create();
+				var n = mat3.create();
+
+				mat4.toInverseMat3(mv, n);
+				mat3.transpose(n);
+
 				webgl_context.uniformMatrix4fv(webgl_shader_program.pMatrixUniform, false, p);
 				webgl_context.uniformMatrix4fv(webgl_shader_program.mvMatrixUniform, false, mv);
+				webgl_context.uniformMatrix3fv(webgl_shader_program.nMatrixUniform, false, n);
 			}
 
 			webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_vertex_buffer);
 			webgl_context.vertexAttribPointer(webgl_shader_program.vertexPositionAttribute,
 					webgl_vertex_buffer.item_size, webgl_context.FLOAT, false, 0, 0);
 
-			webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_color_buffer);
+			/*webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_color_buffer);
 			webgl_context.vertexAttribPointer(webgl_shader_program.vertexColorAttribute,
-					webgl_color_buffer.item_size, webgl_context.FLOAT, false, 0, 0);
+					webgl_color_buffer.item_size, webgl_context.FLOAT, false, 0, 0);*/
 
-			webgl_context.activeTexture(webgl_context.TEXTURE0);
-			webgl_context.bindTexture(webgl_context.TEXTURE_2D, texture_atlas);
-			webgl_context.uniform1i(webgl_shader_program.samplerUniform, 0);
+			webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_normal_buffer);
+			webgl_context.vertexAttribPointer(webgl_shader_program.vertexNormalAttribute,
+					webgl_normal_buffer.item_size, webgl_context.FLOAT, false, 0, 0);
 
+			// The texture range.
 			webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_texture_range_buffer);
 			webgl_context.vertexAttribPointer(webgl_shader_program.vertexTextureRangeAttribute,
 					webgl_texture_range_buffer.item_size, webgl_context.FLOAT, false, 0, 0);
 
+			// The texture coordinates.
 			webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_texture_coordinate_buffer);
 			webgl_context.vertexAttribPointer(webgl_shader_program.vertexTextureCoordinateAttribute,
 					webgl_texture_coordinate_buffer.item_size, webgl_context.FLOAT, false, 0, 0);
+
+			// The sampler.
+			webgl_context.activeTexture(webgl_context.TEXTURE0);
+			webgl_context.bindTexture(webgl_context.TEXTURE_2D, texture_atlas);
+			webgl_context.uniform1i(webgl_shader_program.samplerUniform, 0);
 
 			setMatrixUniforms(pMatrix,mvMatrix);
 		}
@@ -972,7 +1051,7 @@ $(document).ready(function() {
 			});
 			//indexes =[33399, 33402, 33403];
 			//indexes=[[29487, 29488, 29490, 29491]];
-		console.log('indexes length: ' + indexes.length);
+			//console.log('indexes length: ' + indexes.length);
 
 			if(use_webgl && webgl_context) {
 				webgl_context.bindBuffer(webgl_context.ELEMENT_ARRAY_BUFFER, webgl_index_buffer);
@@ -1215,13 +1294,19 @@ $(document).ready(function() {
 						}
 					}
 				}
+
 				function from_indexes(triangle_index) {
 					//var vertices = indexes.slice(triangle_index,triangle_index+3).
 					var vertices = triangle_index.map(
 					function (index) {
 						return webgl_vertices[index]; 
 					});
-					var color = webgl_colors[triangle_index[0]];
+					var color = webgl_normals[triangle_index[0]].map(function (x) { return Math.abs(x); });
+
+					vec3.normalize(color);
+					vec3.scale(color,Math.sqrt(3.0));
+
+					//var color = webgl_colors[triangle_index[0]];
 					draw_triangle(vertices,color);
 				}
 				indexes.forEach(from_indexes);
@@ -1260,7 +1345,17 @@ $(document).ready(function() {
 		use_canvas = true;
 	}
 	}
-	redraw2();
+	//redraw2();
+	function tick()
+	{
+		redraw2();
+		window.setTimeout(tick, 1000/24);
+	}
+	tick();
+
+
+
+
 
 	$('#canvas_option').change(function() {
 		if(canvas_context) {
@@ -1307,7 +1402,7 @@ $(document).ready(function() {
 			} else {
 				player.turn_left(3*2*Math.PI/360);
 			}
-			redraw2();
+			//redraw2();
 			e.preventDefault();
 		} else if(e.keyCode == 38) {
 // Up.
@@ -1316,7 +1411,7 @@ $(document).ready(function() {
 			} else {
 				player.move_forward(5, test_intersection);
 			}
-			redraw2();
+			//redraw2();
 			e.preventDefault();
 		} else if(e.keyCode == 39) {
 // Right.
@@ -1325,7 +1420,7 @@ $(document).ready(function() {
 			} else {
 				player.turn_left(-3*2*Math.PI/360);
 			}
-			redraw2();
+			//redraw2();
 			e.preventDefault();
 		} else if(e.keyCode == 40) {
 // Down.
@@ -1334,7 +1429,7 @@ $(document).ready(function() {
 			}else {
 				player.move_forward(-5, test_intersection);
 			}
-			redraw2();
+			//redraw2();
 			e.preventDefault();
 		} 
 	});
