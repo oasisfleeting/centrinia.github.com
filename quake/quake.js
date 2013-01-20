@@ -1413,43 +1413,64 @@ $(document).ready(function() {
 		});
 	}*/
 
-	$(document).keydown(function(e){
-		if (e.keyCode == 37) {
+	(function () {
+		"use strict";
+		var depressed = [];
+		window.onkeydown = function (event) {
+			if ([37, 38, 39, 40].indexOf(event.which) !== -1) {
+				event.preventDefault();
+			}
+			if (depressed.indexOf(event.which) === -1) {
+				depressed.push(event.which);
+			}
+		};
+		window.onkeyup = function (event) {
+			var index = depressed.indexOf(event.which);
+			if (index !== -1) {
+				depressed.splice(index, 1);
+			}
+		};
+		window.setInterval(function () {
+			if (depressed.length > 0) {
+				var alt = depressed.indexOf(18) !== -1;
+				switch (depressed[depressed.length - 1]) {
 // Left.
-			if(e.altKey) {
-				player.move_left(5, test_intersection);
-			} else {
-				player.turn_left(3*2*Math.PI/360);
-			}
-			//redraw2();
-			e.preventDefault();
-		} else if(e.keyCode == 38) {
+				case 37:
+					if (alt) {
+						player.move_left(5, test_intersection);
+					} else {
+						player.turn_left(3 * 2 * Math.PI / 360);
+					}
+					break;
+
 // Up.
-			if(e.altKey) {
-				player.move_up(5, function (v,e) { return true;});
-			} else {
-				player.move_forward(5, test_intersection);
-			}
-			//redraw2();
-			e.preventDefault();
-		} else if(e.keyCode == 39) {
+				case 38:
+					if (alt) {
+						player.move_up(5, function (v, e) { return true; });
+					} else {
+						player.move_forward(5, test_intersection);
+					}
+					break;
+
 // Right.
-			if(e.altKey) {
-				player.move_left(-5, test_intersection);
-			} else {
-				player.turn_left(-3*2*Math.PI/360);
-			}
-			//redraw2();
-			e.preventDefault();
-		} else if(e.keyCode == 40) {
+				case 39:
+					if (alt) {
+						player.move_left(-5, test_intersection);
+					} else {
+						player.turn_left(-3 * 2 * Math.PI / 360);
+					}
+					break;
+
 // Down.
-			if(e.altKey) {
-				player.move_up(-5, function (v,e) { return true;});
-			}else {
-				player.move_forward(-5, test_intersection);
+				case 40:
+					if (alt) {
+						player.move_up(-5, function (v, e) { return true; });
+					} else {
+						player.move_forward(-5, test_intersection);
+					}
+					break;
+				}
 			}
-			//redraw2();
-			e.preventDefault();
-		} 
-	});
+		}, 35);
+	}());
 });//}}}
