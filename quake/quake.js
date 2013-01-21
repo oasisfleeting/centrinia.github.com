@@ -46,17 +46,17 @@ config = {
 			'modifiers' : ['alt key']
 		},
 		{
-			'binding': 'move forward',
+			'binding': 'move up',
 			'key' : 'up cursor key',
 			'modifiers' : ['alt key']
 		},
 		{
-			'binding': 'turn right',
+			'binding': 'move right',
 			'key' : 'right cursor key',
 			'modifiers' : ['alt key']
 		},
 		{
-			'binding': 'move backward',
+			'binding': 'move down',
 			'key' : 'down cursor key',
 			'modifiers' : ['alt key']
 		}
@@ -79,6 +79,10 @@ config = {
 		'backward distance' : 5,
 		'vertical distance' : 5,
 		'turn angle' : 3 // In degrees.
+	},
+	'viewbob' : {
+		'amplitude' : 2.0,
+		'frequency' : 0.1
 	}
 };
 
@@ -122,7 +126,7 @@ Math.mod = function(x,y) {
 }
 
 Array.prototype.equals = function (b) {
-	if(this.length != b) {
+	if(this.length != b.length) {
 		return false;
 	}
 
@@ -298,10 +302,8 @@ function Viewer(elevation,fov,direction,viewpoint,screen_elevations)
 // Move the viewpoint forward.//{{{
 	this.move_forward = function (step, intersection_handler)
 	{
-		var viewbobAmplitude = 2.0;
-		var viewbobFrequency = 1/10;
 		this.stepDistance++;
-		var viewbob = Math.cos(this.stepDistance*2*Math.PI*viewbobFrequency)*viewbobAmplitude;
+		var viewbob = Math.sin(this.stepDistance*2*Math.PI*config['viewbob']['frequency'])*config['viewbob']['amplitude'];
 
 		var vector = this.direction_vector.scale(step);
 		this.update(this.fov,this.viewpoint.add(vector),this.direction_vector,this.elevation+viewbob, intersection_handler);
@@ -309,10 +311,8 @@ function Viewer(elevation,fov,direction,viewpoint,screen_elevations)
 // Move the viewpoint to the left.//{{{
 	this.move_left = function (step, intersection_handler)
 	{
-		var viewbobAmplitude = 2.0;
-		var viewbobFrequency = 1/10;
 		this.stepDistance++;
-		var viewbob = Math.cos(this.stepDistance*2*Math.PI*viewbobFrequency)*viewbobAmplitude;
+		var viewbob = Math.sin(this.stepDistance*2*Math.PI*config['viewbob']['frequency'])*config['viewbob']['amplitude'];
 
 		var vector = new Vector2([-step*this.direction_vector.coord[1],step*this.direction_vector.coord[0]]);
 		this.update(this.fov,this.viewpoint.add(vector),this.direction_vector,this.elevation+viewbob, intersection_handler);
@@ -1472,41 +1472,38 @@ $(document).ready(function() {
 			}
 		};
 		window.setInterval(function () {
-			if (depressed.length > 0) {
-				var keys = [];
-				var modifiers = [];
-				depressed.forEach(function (keycode) {
-					var key = config['keycodes']['keys'][keycode];
-					if(key) {
-						keys.push(key);
-					}
-					var modifier = config['keycodes']['modifiers'][keycode];
-					if(modifier) {
-						modifiers.push(modifier);
-					}
-				});
-				modifiers = modifiers.sort();
-				var bindings = [];
-				if(keys.length > 0) {
-					console.log(keys);
+			var keys = [];
+			var modifiers = [];
+			depressed.forEach(function (keycode) {
+				var key = config['keycodes']['keys'][keycode];
+				if(key) {
+					keys.push(key);
 				}
-				//var alt = depressed.indexOf(18) !== -1;
-				config['key bindings'].forEach(function  (binding) {
-					var key_index = keys.indexOf(binding['key']);
-					if(key_index >= 0) {
-						if(binding['modifiers'].sort().equals(modifiers)) {
-							bindings.push(binding);
-						}
+				var modifier = config['keycodes']['modifiers'][keycode];
+				if(modifier) {
+					modifiers.push(modifier);
+				}
+			});
+			modifiers = modifiers.sort();
+			if(keys.length > 0) {
+				console.log(keys);
+			}
+			var bindings = [];
+			config['key bindings'].forEach(function  (binding) {
+				var key_index = keys.indexOf(binding['key']);
+				if(key_index >= 0) {
+					if(binding['modifiers'].sort().equals(modifiers)) {
+						bindings.push(binding);
 					}
-				});
-				bindings.forEach(function (binding) {
-				switch(binding['binding']) {
+				}
+			});
+			bindings.forEach(function (binding) {
+			switch(binding['binding']) {
 				//{{{
 				case 'move left': {
 						player.move_left(config['movement']['strafe distance'], test_intersection);
 				}
 				break;
-
 				case 'move right': {
 						player.move_left(-config['movement']['strafe distance'], test_intersection);
 				}
@@ -1519,7 +1516,6 @@ $(document).ready(function() {
 						player.move_up(-config['movement']['vertical distance'], test_intersection);
 				}
 				break;
-
 				case 'move forward': {
 						player.move_forward(config['movement']['forward distance'], test_intersection);
 				}
@@ -1538,8 +1534,7 @@ $(document).ready(function() {
 				break;
 				//}}}
 				}
-				});
-			}
+			});
 		}, config['key refresh']);
 	}());
 });//}}}
