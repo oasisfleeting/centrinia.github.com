@@ -1457,8 +1457,7 @@ $(document).ready(function() {
 		"use strict";
 		var depressed = [];
 		window.onkeydown = function (event) {
-			if(Object.keys(config['keycodes']['keys']).indexOf(event.which) != -1) {
-			//if ([37, 38, 39, 40].indexOf(event.which) !== -1) {
+			if(Object.keys(config['keycodes']['keys']).indexOf(event.which.toString()) != -1) {
 				event.preventDefault();
 			}
 			if (depressed.indexOf(event.which) === -1) {
