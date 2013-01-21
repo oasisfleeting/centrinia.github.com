@@ -115,26 +115,6 @@ function Segment(endpoint0,endpoint1)
 	{
 		return this.normal.dot(vec) - this.displacement;
 	};
-	this.intersects_circle = function (center,radius) {
-//  http://mathworld.wolfram.com/Circle-LineIntersection.html
-		var endpoints = this.endpoints.map(function (p) { return p.subtract(center); });
-		if(endpoints[0].norm() < radius || endpoints[1].norm() < radius){
-		  return true;
-		}
-		var d = [0,1].map(function (i) { return endpoints[1].coord[i] - endpoints[0].coord[i]});
-		var d_r_squared = d[0]*d[0]+d[1]*d[1];
-		var D = endpoints[0].coord[0]*endpoints[1].coord[1] - endpoints[1].coord[0]*endpoints[0].coord[1];
-		var discriminant = radius*radius*d_r_squared - D*D;
-		if(discriminant <= 0) {
-			return false;
-		}
-		var t = Math.sqrt(discriminant);
-		var p0 = new Vector2([D*d[1], -D*d[0]]);
-		var p1 = new Vector2([(d[1] < 0 ? -1 : 1) *d[0]*t, Math.abs(d[1])*t]);
-		var z0 = p0.add(p1).scale(1/d_r_squared).add(center);
-		var z1 = p0.subtract(p1).scale(1/d_r_squared).add(center);
-		return this.inside(z0) || this.inside(z1);
-	}
 }//}}}
 
 // A two dimensional vector.//{{{
@@ -205,7 +185,7 @@ function Viewer(elevation,fov,direction,viewpoint,screen_elevations)
 	};//}}}
 // Update the frustum.//{{{
 	this.update = function(fov,viewpoint,direction,elevation, intersection_handler) {
-		if(!intersection_handler(viewpoint, elevation)){
+		if(!intersection_handler(viewpoint.coord.concat([elevation]))){
 		  return;
 		}
 		this.viewpoint = viewpoint;
@@ -1303,12 +1283,8 @@ $(document).ready(function() {
 					function (index) {
 						return webgl_vertices[index]; 
 					});
-					var color = webgl_normals[triangle_index[0]].map(function (x) { return Math.abs(x); });
+					var color = webgl_normals[triangle_index[0]].map(function (x) { return (x+1)/2; });
 
-					vec3.normalize(color);
-					vec3.scale(color,Math.sqrt(3.0));
-
-					//var color = webgl_colors[triangle_index[0]];
 					draw_triangle(vertices,color);
 				}
 				indexes.forEach(from_indexes);
@@ -1397,22 +1373,9 @@ $(document).ready(function() {
 		player = select_map();
 		redraw2();
 	});
-	function test_intersection(viewpoint,elevation) {
+	function test_intersection(viewpoint) {
 		return true;
 	}
-	/*function test_intersection(viewpoint,elevation) {
-		if(use_noclip) {
-		  return true;
-		}
-		var player_radius = 16;
-		return !bsp.intersects(viewpoint, function (wall) {
-			if(wall.elevations.length == 4) {
-			  return false;
-			}
-			return wall.line.intersects_circle(viewpoint, player_radius);
-		});
-	}*/
-
 	(function () {
 		"use strict";
 		var depressed = [];
@@ -1433,7 +1396,9 @@ $(document).ready(function() {
 		window.setInterval(function () {
 			if (depressed.length > 0) {
 				var alt = depressed.indexOf(18) !== -1;
-				switch (depressed[depressed.length - 1]) {
+				depressed.forEach(function (keycode) {
+				//switch (depressed[depressed.length - 1])
+				switch (keycode) {
 // Left.
 				case 37:
 					if (alt) {
@@ -1446,7 +1411,7 @@ $(document).ready(function() {
 // Up.
 				case 38:
 					if (alt) {
-						player.move_up(5, function (v, e) { return true; });
+						player.move_up(5, test_intersection);
 					} else {
 						player.move_forward(5, test_intersection);
 					}
@@ -1464,12 +1429,13 @@ $(document).ready(function() {
 // Down.
 				case 40:
 					if (alt) {
-						player.move_up(-5, function (v, e) { return true; });
+						player.move_up(-5, test_intersection);
 					} else {
 						player.move_forward(-5, test_intersection);
 					}
 					break;
 				}
+				});
 			}
 		}, 35);
 	}());

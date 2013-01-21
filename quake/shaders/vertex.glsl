@@ -23,5 +23,5 @@ void main(void) {
 
 	vTransformedNormal = normalize(uNMatrix * aVertexNormal);
 	vTextureRange = aVertexTextureRange;
-	vTextureCoord = aVertexTextureCoordinate;
+	vTextureCoord = aVertexTextureCoordinate/aVertexTextureRange.zw;
 }
