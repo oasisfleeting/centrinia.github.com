@@ -18,6 +18,70 @@ var use_webgl = use_canvas;
 var use_noclip = false;
 var use_blending = false;
 
+config = {
+	'key bindings' : [
+		{
+			'binding': 'turn left',
+			'key' : 'left cursor key',
+			'modifiers' : []
+		},
+		{
+			'binding': 'move forward',
+			'key' : 'up cursor key',
+			'modifiers' : []
+		},
+		{
+			'binding': 'turn right',
+			'key' : 'right cursor key',
+			'modifiers' : []
+		},
+		{
+			'binding': 'move backward',
+			'key' : 'down cursor key', 
+			'modifiers' : []
+		},
+		{
+			'binding': 'move left',
+			'key' : 'left cursor key',
+			'modifiers' : ['alt key']
+		},
+		{
+			'binding': 'move forward',
+			'key' : 'up cursor key',
+			'modifiers' : ['alt key']
+		},
+		{
+			'binding': 'turn right',
+			'key' : 'right cursor key',
+			'modifiers' : ['alt key']
+		},
+		{
+			'binding': 'move backward',
+			'key' : 'down cursor key',
+			'modifiers' : ['alt key']
+		}
+	],
+	'keycodes' : {
+		'modifiers' : {
+			18 : 'alt key'
+		},
+		'keys' : {
+			37 : 'left cursor key',
+			38 : 'up cursor key',
+			39 : 'right cursor key',
+			40 : 'down cursor key'
+		}
+	},
+	'key refresh' : 35,
+	'movement' : {
+		'strafe distance' : 5,
+		'forward distance' : 5,
+		'backward distance' : 5,
+		'vertical distance' : 5,
+		'turn angle' : 3 // In degrees.
+	}
+};
+
 //{{{
 var clone = function() {
 	var result = this instanceof Array ? [] : {};
@@ -55,6 +119,19 @@ function to_array(obj) {
 
 Math.mod = function(x,y) {
 	return x - y*Math.floor(x/y);
+}
+
+Array.prototype.equals = function (b) {
+	if(this.length != b) {
+		return false;
+	}
+
+	for(var i=0;i<this.length;i++) {
+		if(this[i] != b[i]) {
+			return false;
+		}
+	}
+	return true;
 }
 
 Array.prototype.shuffle = function () {
@@ -1380,7 +1457,8 @@ $(document).ready(function() {
 		"use strict";
 		var depressed = [];
 		window.onkeydown = function (event) {
-			if ([37, 38, 39, 40].indexOf(event.which) !== -1) {
+			if(Object.keys(config['keycodes']['keys']).indexOf(event.which) != -1) {
+			//if ([37, 38, 39, 40].indexOf(event.which) !== -1) {
 				event.preventDefault();
 			}
 			if (depressed.indexOf(event.which) === -1) {
@@ -1395,48 +1473,73 @@ $(document).ready(function() {
 		};
 		window.setInterval(function () {
 			if (depressed.length > 0) {
-				var alt = depressed.indexOf(18) !== -1;
+				var keys = [];
+				var modifiers = [];
 				depressed.forEach(function (keycode) {
-				//switch (depressed[depressed.length - 1])
-				switch (keycode) {
-// Left.
-				case 37:
-					if (alt) {
-						player.move_left(5, test_intersection);
-					} else {
-						player.turn_left(3 * 2 * Math.PI / 360);
+					var key = config['keycodes']['keys'][keycode];
+					if(key) {
+						keys.push(key);
 					}
-					break;
+					var modifier = config['keycodes']['modifiers'][keycode];
+					if(modifier) {
+						modifiers.push(modifier);
+					}
+				});
+				modifiers = modifiers.sort();
+				var bindings = [];
+				if(keys.length > 0) {
+					console.log(keys);
+				}
+				//var alt = depressed.indexOf(18) !== -1;
+				config['key bindings'].forEach(function  (binding) {
+					var key_index = keys.indexOf(binding['key']);
+					if(key_index >= 0) {
+						if(binding['modifiers'].sort().equals(modifiers)) {
+							bindings.push(binding);
+						}
+					}
+				});
+				bindings.forEach(function (binding) {
+				switch(binding['binding']) {
+				//{{{
+				case 'move left': {
+						player.move_left(config['movement']['strafe distance'], test_intersection);
+				}
+				break;
 
-// Up.
-				case 38:
-					if (alt) {
-						player.move_up(5, test_intersection);
-					} else {
-						player.move_forward(5, test_intersection);
-					}
-					break;
+				case 'move right': {
+						player.move_left(-config['movement']['strafe distance'], test_intersection);
+				}
+				break;
+				case 'move up': {
+						player.move_up(config['movement']['vertical distance'], test_intersection);
+				}
+				break;
+				case 'move down': {
+						player.move_up(-config['movement']['vertical distance'], test_intersection);
+				}
+				break;
 
-// Right.
-				case 39:
-					if (alt) {
-						player.move_left(-5, test_intersection);
-					} else {
-						player.turn_left(-3 * 2 * Math.PI / 360);
-					}
-					break;
-
-// Down.
-				case 40:
-					if (alt) {
-						player.move_up(-5, test_intersection);
-					} else {
-						player.move_forward(-5, test_intersection);
-					}
-					break;
+				case 'move forward': {
+						player.move_forward(config['movement']['forward distance'], test_intersection);
+				}
+				break;
+				case 'move backward': {
+						player.move_forward(-config['movement']['backward distance'], test_intersection);
+				}
+				break;
+				case 'turn left': {
+						player.turn_left(config['movement']['turn angle'] * 2 * Math.PI / 360);
+				}
+				break;
+				case 'turn right': {
+						player.turn_left(-config['movement']['turn angle'] * 2 * Math.PI / 360);
+				}
+				break;
+				//}}}
 				}
 				});
 			}
-		}, 35);
+		}, config['key refresh']);
 	}());
 });//}}}
