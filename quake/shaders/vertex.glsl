@@ -24,4 +24,5 @@ void main(void) {
 	vTransformedNormal = normalize(uNMatrix * aVertexNormal);
 	vTextureRange = aVertexTextureRange;
 	vTextureCoord = aVertexTextureCoordinate/aVertexTextureRange.zw;
+	//vTextureCoord = cubemap(view_position.xyz / view_position.w);
 }

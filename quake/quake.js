@@ -76,13 +76,13 @@ config = {
 	'movement' : {
 		'strafe distance' : 5,
 		'forward distance' : 5,
-		'backward distance' : 5,
+		'backward distance' : 3,
 		'vertical distance' : 5,
-		'turn angle' : 3 // In degrees.
+		'turn angle' : 5 // In degrees.
 	},
 	'viewbob' : {
-		'amplitude' : 2.0,
-		'frequency' : 0.1
+		'amplitude' : 3.0,
+		'frequency' : 0.07
 	}
 };
 
@@ -98,7 +98,6 @@ var clone = function() {
 	}
 	return result;
 }
-
 
 Object.defineProperty(Object.prototype, 'clone', {value: clone, enumerable: false});
 
@@ -848,9 +847,12 @@ $(document).ready(function() {
 						webgl_colors.push(face_color);
 						webgl_normals.push(face_normal);
 
-// {"pak0/maps/e1m8.bsp":{"0":{"index":0,"begin":[0,0],"size":[320,192]}
 						// [x,y,w,h]
 						var texrange = atlas_entry['begin'].concat(atlas_entry['size']);
+						if(atlas_entry['texture name'].substr(0,3) == 'sky') {
+							texrange[2] = -texrange[2];
+							texrange[3] = -texrange[3];
+						}
 						webgl_texture_range.push(texrange);
 
 						//s = dotproduct(Vertex,vectorS) + distS;    
@@ -916,7 +918,7 @@ $(document).ready(function() {
 
 		function handle_loaded_texture(texture) {
 			webgl_context.bindTexture(webgl_context.TEXTURE_2D, texture);
-			webgl_context.pixelStorei(webgl_context.UNPACK_FLIP_Y_WEBGL, true);
+			//webgl_context.pixelStorei(webgl_context.UNPACK_FLIP_Y_WEBGL, true);
 			webgl_context.texImage2D(
 				webgl_context.TEXTURE_2D, 0, 
 				webgl_context.RGBA, webgl_context.RGBA, webgl_context.UNSIGNED_BYTE, texture.image);
@@ -926,6 +928,10 @@ $(document).ready(function() {
 				webgl_context.TEXTURE_2D, webgl_context.TEXTURE_MIN_FILTER, webgl_context.NEAREST);
 			webgl_context.bindTexture(webgl_context.TEXTURE_2D, null);
 		}
+		/*function handle_loaded_cubemap(texture) {
+			webgl_context.bindTexture(webgl_context.TEXTURE_CUBE_MAP_NEGATIVE_X, texture) {
+		}*/
+
 		function init_texture() {
 			texture_atlas = webgl_context.createTexture();
 			texture_atlas.image = new Image();
@@ -1425,10 +1431,6 @@ $(document).ready(function() {
 	}
 	tick();
 
-
-
-
-
 	$('#canvas_option').change(function() {
 		if(canvas_context) {
 			canvas_context.clearRect(0,0,canvas.width,canvas.height);
@@ -1457,16 +1459,16 @@ $(document).ready(function() {
 		"use strict";
 		var depressed = [];
 		window.onkeydown = function (event) {
-			if(Object.keys(config['keycodes']['keys']).indexOf(event.which.toString()) != -1) {
+			if(Object.keys(config['keycodes']['keys']).indexOf(event.which.toString()) >= 0) {
 				event.preventDefault();
 			}
-			if (depressed.indexOf(event.which) === -1) {
+			if (depressed.indexOf(event.which) < 0) {
 				depressed.push(event.which);
 			}
 		};
 		window.onkeyup = function (event) {
 			var index = depressed.indexOf(event.which);
-			if (index !== -1) {
+			if (index >= 0) {
 				depressed.splice(index, 1);
 			}
 		};
@@ -1484,9 +1486,6 @@ $(document).ready(function() {
 				}
 			});
 			modifiers = modifiers.sort();
-			if(keys.length > 0) {
-				console.log(keys);
-			}
 			var bindings = [];
 			config['key bindings'].forEach(function  (binding) {
 				var key_index = keys.indexOf(binding['key']);

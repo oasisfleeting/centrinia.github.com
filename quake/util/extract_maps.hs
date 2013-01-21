@@ -239,7 +239,7 @@ load_entity contents "miptex" = do {
 		--miptex_offsets = offsets
 		miptex_textures =
 			map (\(index,offset) -> load_miptex (fromIntegral offset) index)
-			$ zip [0..] (filter (>=0) offsets)
+			$ filter ((>=0) . snd) $ zip [0..] offsets
 	};
 } where {
 	{-
@@ -349,7 +349,7 @@ load_entity _ "faces" = do {
 	ledge_id <- m_fromIntegral $ getInt32le; -- Int32               -- first edge in the List of edges
 --           must be in [0,numledges[
 	ledge_num <- m_fromIntegral $ getWord16le;
-	texinfo_id <- m_fromIntegral $ getWord16le;
+	texinfo_id <- m_fromIntegral $ getInt16le;
 --           must be in [0,numtexinfos[ 
 	typelight <- m_fromIntegral $ getWord8;
 	baselight <- m_fromIntegral $ getWord8;
@@ -573,7 +573,7 @@ let {
 ];
 
 -- Placement {placement_begin = (320,0), placement_size = (320,192), placement_item = [("pak0/maps/e1m7.bsp",4)]}
-marshall_texture_index_json :: [Placement [(String,Integer)]] -> JS.JSValue;
+marshall_texture_index_json :: [Placement [(String,Miptex)]] -> JS.JSValue;
 marshall_texture_index_json ps =
 let {
 	filenames =
@@ -584,13 +584,14 @@ let {
 	$ map (first show)
 	$ Data.List.sortBy (compare `on` fst)
 	[ 
-		(index,
+		(miptex_index miptex,
 		JS.toJSObject [
-			("index",JS.showJSON $ index),
+			("index",JS.showJSON $ miptex_index miptex),
+			("texture name",JS.showJSON $ miptex_name miptex),
 			("begin",JS.showJSON $ placement_begin p),
 			("size",JS.showJSON $ placement_size p)
 		])
-	| p <- ps, (fn,index) <- placement_item p, fn == filename];
+	| p <- ps, (fn,miptex) <- placement_item p, fn == filename];
 } in JS.showJSON $ JS.toJSObject $ [
 (filename, gather_textures filename)
 | filename <- filenames
@@ -712,7 +713,7 @@ let {
 		$ concat 
 		$ images;
 		positions = placements (0,0) 
-			$ map_tree (map (\(fn,miptex) -> (handle_filename fn,miptex_index miptex)) . fst)
+			$ map_tree (map (\(fn,miptex) -> (handle_filename fn,miptex)) . fst)
 			$ tree;
 		filepath_prefix =
 			Data.List.takeWhile ((==1) . length)
