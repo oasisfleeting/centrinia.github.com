@@ -849,7 +849,7 @@ $(document).ready(function() {
 		var mvRotTMatrix = mat4.create();
 		var pMatrix = mat4.create();
 		//mat4.perspective(60, webgl_context.viewportWidth / webgl_context.viewportHeight, 0.1, 100.0, pMatrix);
-		mat4.perspective(60, canvas_element.width / canvas_element.height, 0.1, 100.0, pMatrix);
+		mat4.perspective(60, canvas_element.width / canvas_element.height, 1, 10000.0, pMatrix);
 
 		/*mat4.multiply(
 		[	1,0,0,0.5,
