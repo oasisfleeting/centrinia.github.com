@@ -3,15 +3,21 @@
 //precision lowp float;
 precision mediump float;
 
-//varying vec4 vColor;
 uniform vec4 uDummy;
 uniform vec2 texture_size;
 
+uniform bool use_lighting;
+uniform bool uUseTexturing;
+uniform mat4 uMVMatrix;
+uniform mat4 uMVRotTMatrix;
+uniform mat4 uPMatrix;
 uniform mat3 uNMatrix;
 varying vec2 vTextureCoord;
+varying vec4 vColor;
 varying vec4 vTextureRange;
 varying vec3 vTransformedNormal;
 varying vec4 view_position;
+varying vec4 vertex_position;
 
 uniform sampler2D uSampler;
 
@@ -31,7 +37,7 @@ vec4 lookup_texture(vec2 uv,vec2 begin, vec2 size) {
 // Single Image cubemap.
 vec2 cubemap(vec3 vector)
 {
-	vec3 result;
+	vec2 result;
 	int t_index=0;
 	float t = vector[0];
 	for(int i=1;i<3;i++) {
@@ -40,52 +46,59 @@ vec2 cubemap(vec3 vector)
 			t = vector[i];
 		}
 	}
-	int j=0;
-	for(int i=0;i<3;i++) {
-		if(i != t_index) {
-			float s = vector[i] / abs(t);
-			if(j == 0) {
-			result.x = s;
-			} else {
-			result.y = s;
-			}
-			j++;
-		}
+
+	if(t_index == 0) {
+		result = vector.yz;
+	} else if(t_index == 1) {
+		result = vector.xz;
+	} else {
+		result = vector.xy;
 	}
-	return result.xy;
+
+	return result.xy/t;
 }
 
 void main(void) {
-	vec3 uAmbientColor = vec3(0.5,0.5,0.5);
-	vec3 uPointLightingColor = vec3(0.7,0.6,0.3)*7.0;
-	vec3 lantern_color = vec3(0.1,0.2,0.7)*20.0;
+	vec3 uAmbientColor = vec3(0.2,0.2,0.2);
+	vec3 uPointLightingColor = vec3(0.7,0.6,0.3)*10.0;
+	//vec3 lantern_color = vec3(0.1,0.2,0.7)*5.0;
+	vec3 lantern_color = vec3(0.1,0.2,0.7)*0.0;
 
 	vec4 texcolor;
-	vec3 lightWeighting;
-	if(vTextureRange.z> 0.0) {
-		texcolor = lookup_texture(vTextureCoord,
-			vTextureRange.xy,vTextureRange.zw
-		);
+	vec3 lightWeighting = vec3(1,1,1);
+	if(vTextureRange.z > 0.0) 
+	{
+		if(uUseTexturing) {
+			texcolor = lookup_texture(vTextureCoord,
+				vTextureRange.xy,vTextureRange.zw
+			);
+		} else {
+			texcolor = vColor;
+		}
 
-	vec3 lightDirection = normalize(vec3(0,0,0)-view_position.xyz);
+		if(use_lighting) {
+			vec3 lightDirection = normalize(vec3(0,0,0)-view_position.xyz);
+			//vec3 lightDirection = normalize(vec3(0,0,1));
 
-	//vec3 normal_vector = normalize(normalize(uNMatrix * (texcolor.rgb*2.0-1.0))*5.0+vTransformedNormal);
-	//vec3 normal_vector = vTransformedNormal;
-	float directionalLightWeighting = max(dot(vTransformedNormal, lightDirection), 0.0);
-	//float directionalLightWeighting = max(dot(normal_vector, lightDirection), 0.0);
-	
-	float inverse_square = pow(length(view_position.xyz),-2.0);
-	lightWeighting = uAmbientColor + 
-		uPointLightingColor * directionalLightWeighting +
-		lantern_color * inverse_square;
-	//texcolor = vec4(1,1,1,1)*0.5;
-	//texcolor = vec4((vTransformedNormal+1.0)/2.0,1.0);
+			float directionalLightWeighting = pow(max(dot(vTransformedNormal, lightDirection), 0.0),2.0);
+
+			float inverse_square = pow(length(view_position.xyz),-2.0);
+			lightWeighting = uAmbientColor + 
+				uPointLightingColor * directionalLightWeighting +
+				lantern_color * inverse_square;
+		}
 	} else {
-		texcolor = lookup_texture(
-			cubemap(view_position.xyz), 
-			vec2(vTextureRange.x - vTextureRange.z/2.0, vTextureRange.y),
-			vec2(-vTextureRange.z/2.0, -vTextureRange.w));
-	lightWeighting = vec3(1,1,1);
+		vec3 viewvec = (uMVMatrix*vec4(vertex_position.xyz,1)).xyz;
+
+		if(uUseTexturing) {
+			texcolor = lookup_texture(
+				cubemap((uMVRotTMatrix*vec4(viewvec,1)).xyz),
+				vec2(vTextureRange.x - vTextureRange.z/2.0, vTextureRange.y),
+				vec2(-vTextureRange.z/2.0, -vTextureRange.w));
+		} else {
+			texcolor = vColor;
+		}
+		lightWeighting = vec3(1,1,1);
 	}
 	gl_FragColor = vec4(texcolor.rgb*lightWeighting,texcolor.a);
 }

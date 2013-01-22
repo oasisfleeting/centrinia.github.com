@@ -11,6 +11,7 @@ var use_individual_vertices = true;
 var maximum_draw_count = null;
 var use_wireframe = false;
 var use_texturing = true;
+var use_lighting = true;
 var use_canvas = true;
 var use_webgl = use_canvas;
 //var use_canvas = false;
@@ -291,6 +292,10 @@ function Plane(definition) {
 	definition.object = this;
 	this.normal = Vector.create(definition['normal']);
 	this.displacement = definition['dist'];
+
+	var normal_length = this.normal.norm();
+	this.normal = this.normal.scale(normal_length);
+	this.displacement /= normal_length;
 }
 Plane.prototype.normal_equation = function (point) {
 	return this.normal.dot(point)-this.displacement;
@@ -321,35 +326,42 @@ function Face(definition,level,buffers) {
 	var head = indexes[0];
 	var tail1 = indexes.slice(1,indexes.length-1);
 	var tail2 = indexes.slice(2,indexes.length);
-	var face_color = [Math.random(),Math.random(),Math.random()];
-	//var face_normal = new Array(3);
-	//var face_tangent  = new Array(3);
 	var v0 = new Array(3);
 	var v1 = new Array(3);
 
 	this.vertices = indexes.map(function (index) {
-		return level['vertices'][index];
+		return Vector.create(level['vertices'][index]);
 	});
-	/*var j=0;
-	do {
-		vec3.subtract(level['vertices'][indexes[j]],level['vertices'][indexes[j+1]],v0);
 
-		var i=2+j;
-		do {
-			vec3.subtract(level['vertices'][indexes[i]],level['vertices'][indexes[j+1]],v1);
-			vec3.cross(v0,v1,face_normal);
-			i++;
-		} while(i < indexes.length && (vec3.length(face_normal) < 1e-2));
-
-		vec3.cross(v0,v1,face_normal);
-	} while(j+2 < indexes.length && vec3.length(face_normal) < 1e-2);
-	this.normal = vec3.normalize(face_normal);*/
 	this.plane = level['planes'][definition['plane id']];
 
 	if(!this.plane.object) {
 		this.plane.object = new Plane(this.plane);
 	}
+	var j=0;
+	do {
+		//vec3.subtract(level['vertices'][indexes[j]],level['vertices'][indexes[j+1]],v0);
+		var v0 = this.vertices[j].subtract(this.vertices[j+1]);
+		var i=2+j;
+		do {
+			var v1 = this.vertices[i].subtract(this.vertices[j+1]);
+			//vec3.subtract(level['vertices'][indexes[i]],level['vertices'][indexes[j+1]],v1);
+			face_normal = v0.cross(v1).normalize();
+			i++;
+		} while(i < indexes.length && (face_normal.norm() < 1e-5));
+		j++;
+	} while(j+2 < indexes.length && face_normal.norm() < 1e-5);
+	this.normal = face_normal;
+	
+	//console.log(this.normal.dot(this.plane.object.normal));
+	//this.normal = this.plane.object.normal;
 
+	var face_color = Vector.create(
+		this.normal.normalize().coord.map(function (c) { return (c+1)/2; })
+	);
+	face_color.coord.push(1);
+
+	/* TODO: Use Vector
 	this.edge_planes = [];
 	for(var i=0;i<this.vertices.length;i++) {
 		var v = new Array(3);
@@ -360,7 +372,7 @@ function Face(definition,level,buffers) {
 		var edge_plane = new Plane({ 'normal' : tangent_normal, 'dist' : vec3.dot(tangent_normal, this.vertices[i])})
 		edge_plane.vertex = this.vertices[i];
 		this.edge_planes.push(edge_plane);
-	}
+	}*/
 
 	var levelname = level['filename'];
 	var texture_index = definition['texture index'];
@@ -375,9 +387,9 @@ function Face(definition,level,buffers) {
 			var result = buffers['vertex'].length;
 			var vertex = level['vertices'][index];
 			buffers['vertex'].push(vertex);
-			buffers['color'].push(face_color);
+			buffers['color'].push(face_color.coord);
 			//buffers['normal'].push(this.plane.object.normal.coord);
-			buffers['normal'].push(this.plane.normal);
+			buffers['normal'].push(this.normal.coord);
 
 			// [x,y,w,h]
 			var texrange = atlas_entry['begin'].concat(atlas_entry['size']);
@@ -552,6 +564,15 @@ Vector.create = function(coord) {
 	}
 	return result;
 };
+
+// TODO: Make this n-dimensional.
+Vector.prototype.cross = function(b) {
+	var c = new Vector(3);
+	c.coord[0] = this.coord[1] * b.coord[2] - this.coord[2] * b.coord[1];
+	c.coord[1] = - (this.coord[0] * b.coord[2] - this.coord[2] * b.coord[0]);
+	c.coord[2] = this.coord[0] * b.coord[1] - this.coord[1] * b.coord[0];
+	return c;
+}
 Vector.prototype.dot = function(b) {
 	var c = 0;
 	for(var i=0;i<this.coord.length;i++) {
@@ -574,15 +595,21 @@ Vector.prototype.scale = function (s) {
 	}
 	return c;
 };
-Vector.prototype.normalize = function() {
+Vector.prototype.norm = function() {
 	var n = 0;
 	for(var i=0;i<this.coord.length;i++) {
 		n += this.coord[i] * this.coord[i];
 	}
-	n = Math.sqrt(n);
+	return Math.sqrt(n);
+}
+Vector.prototype.normalize = function() {
 	var c = new Vector(this.coord.length);
+	var t = this.norm();
+	if(t != 0) {
+		t = 1/t;
+	}
 	for(var i=0;i<this.coord.length;i++) {
-		c.coord[i] = this.coord[i] / n;
+		c.coord[i] = this.coord[i] * t;
 	}
 	return c;
 };
@@ -766,8 +793,8 @@ $(document).ready(function() {
 			webgl_shader_program.vertexPositionAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexPosition");
 			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexPositionAttribute);
 
-			/*webgl_shader_program.vertexColorAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexColor");
-			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexColorAttribute);*/
+			webgl_shader_program.vertexColorAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexColor");
+			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexColorAttribute);
 
 			webgl_shader_program.vertexNormalAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexNormal");
 			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexNormalAttribute);
@@ -780,6 +807,9 @@ $(document).ready(function() {
 				webgl_context.getAttribLocation(webgl_shader_program, "aVertexTextureCoordinate");
 			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexTextrueCoordinateAttribute);
 
+			webgl_shader_program.use_lighting_uniform = webgl_context.getUniformLocation(webgl_shader_program, "use_lighting");
+			webgl_shader_program.useTexturingUniform = webgl_context.getUniformLocation(webgl_shader_program, "uUseTexturing");
+
 			webgl_shader_program.texture_size_uniform = webgl_context.getUniformLocation(webgl_shader_program, "texture_size");
 			webgl_shader_program.samplerUniform = webgl_context.getUniformLocation(webgl_shader_program, "uSampler");
 			webgl_shader_program.pMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uPMatrix");
@@ -788,7 +818,7 @@ $(document).ready(function() {
 			webgl_shader_program.nMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uNMatrix");
 
 			var webgl_vertex_buffer;
-			//var webgl_color_buffer;
+			var webgl_color_buffer;
 			var webgl_texture_coordinate_buffer;
 			var webgl_texture_range_buffer;
 			//webgl_context.enable(webgl_context.CULL_FACE);
@@ -836,7 +866,7 @@ $(document).ready(function() {
 
 		mat4.identity(mvMatrix);
 
-		mat4.scale(mvMatrix,[1/100,1/100,1/100]);
+		//mat4.scale(mvMatrix,[1/100,1/100,1/100]);
 
 		mat4.rotate(mvMatrix, roll_angle, [0,0,1]);
 		mat4.rotate(mvMatrix, pitch_angle, [1,0,0]);
@@ -862,6 +892,8 @@ $(document).ready(function() {
 				mat4.toInverseMat3(mv, n);
 				mat3.transpose(n);
 
+				webgl_context.uniform1i(webgl_shader_program.use_lighting_uniform, use_lighting);
+				webgl_context.uniform1i(webgl_shader_program.useTexturingUniform, use_texturing);
 				webgl_context.uniformMatrix4fv(webgl_shader_program.pMatrixUniform, false, p);
 				webgl_context.uniformMatrix4fv(webgl_shader_program.mvMatrixUniform, false, mv);
 				webgl_context.uniformMatrix4fv(webgl_shader_program.mvRotTMatrixUniform, false, mvrot);
@@ -872,9 +904,9 @@ $(document).ready(function() {
 			webgl_context.vertexAttribPointer(webgl_shader_program.vertexPositionAttribute,
 					webgl_vertex_buffer.item_size, webgl_context.FLOAT, false, 0, 0);
 
-			/*webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_color_buffer);
+			webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_color_buffer);
 			webgl_context.vertexAttribPointer(webgl_shader_program.vertexColorAttribute,
-					webgl_color_buffer.item_size, webgl_context.FLOAT, false, 0, 0);*/
+					webgl_color_buffer.item_size, webgl_context.FLOAT, false, 0, 0);
 
 			webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_normal_buffer);
 			webgl_context.vertexAttribPointer(webgl_shader_program.vertexNormalAttribute,
@@ -1004,16 +1036,6 @@ $(document).ready(function() {
 					var color = c.map(function (x) { return Math.floor(Math.abs(x)*255) % 256; });
 					return 'rgb(' + ~~color[0] + ',' + ~~color[1] + ',' + ~~color[2] + ')';
 				}
-				/*function project_vertex(vertex) {
-					var v = vertex.concat([1]);
-					var projected = new Array(4);
-					mat4.multiplyVec4(mat,v,projected);
-					//projected[2] = -projected[2];
-					var w = projected[3];
-					//vec3.scale(projected,1/w);
-					return projected;
-					//return projected.map(function (x) { return x/w;});
-				}*/
 				function to_screen(projected) {
 					//console.log('(x,y,z) : ' + projected[0] + ',' + projected[1] + ',' + projected[2] + ')');
 					//console.log('(x,y) : ' + (1+projected[0])*cx + ',' + (1-projected[1])*cy + ')');
@@ -1031,14 +1053,9 @@ $(document).ready(function() {
 					// Adding two vectors in projective space is given by [x0,w0] + [x1,w1] = [x0*w1+x1*w0,w0*w1]
 					var n = normal.concat([-dist]);
 					var direction = start.subtract(end);
-					//var denominator = vec3.dot(direction,normal);
 					var denominator = n.dot(direction);
 					if(denominator != 0) {
-						//var t = (dist - vec3.dot(start,normal)) / denominator;
 						t = n.dot(start) / denominator;
-						//var vector = new Array(3);
-						//vec3.scale(direction,t,vector);
-						//vec3.add(start,vector,vector);
 						var vector = new Array(4);
 						for(var i=0;i<4;i++) {
 							vector[i] = start[i] * (1-t) + end[i]*(t);
@@ -1049,83 +1066,6 @@ $(document).ready(function() {
 						};
 					} else {
 						return null;
-					}
-				}
-				// Slice a polygon with a plane. The ordered list of vertices on the positive side of the plane will be modified.
-				function slice_polygon(vertices,normal,dist) {
-					var plane = new Plane({'normal':normal,'dist':dist});
-					function dot(v) {
-						return vec3.dot(normal,v) - dist*v[3];
-					}
-					for(var start = 0; 
-						start < vertices.length &&
-						dot(vertices[start]) < 0;
-						start++);
-
-					if(start == vertices.length) {
-							vertices.splice(0,vertices.length);
-							return;
-					}
-					start = (start+1) % vertices.length;
-					for(var i=0;i<vertices.length;) {
-						var i_start = (i+start) % vertices.length;
-
-
-						/*if(dot(vertices[(i_start-1+vertices.length) % vertices.length]) < 0) {
-							console.log(vertices[(i_start-1+vertices.length)%vertices.length]);
-						}*/
-
-						for(var culled_count=0;
-							(dot(vertices[(i_start + culled_count) % vertices.length]) < 0) && 
-							(culled_count < vertices.length);
-							culled_count++);
-						if(culled_count == vertices.length) {
-							vertices.splice(0,vertices.length);
-							return;
-						}
-						if(culled_count > 0) {
-							var vs = [
-								{ 'index' : -1, 'next' : 1},
-								{ 'index' : culled_count, 'next' : -1}
-							].map(function (i) {
-								var index = (i['index']+i_start+vertices.length)%vertices.length;
-								// This is on the positive side of the plane.
-								var v0 = vertices[index];
-								var v1 = vertices[(index+i['next'] + vertices.length)%vertices.length];
-								//var vi = plane.intersect_line(v0,v1);
-								var vi = Plane.prototype.intersect_line.apply(plane,[v0,v1]);
-								//var vi = line_plane_intersect_parameter(v0,v1,normal,dist);
-								if(vi == null) {
-									v = v1;
-								} else {
-									var v = vi['vector'];
-								}
-								// We do not allow for results that are on the negative side of the plane.
-								/*var displacement = dot(v);
-								if(displacement < 0) {
-								// Interpolate between (v,v0) at 1+displacement*2
-									var t=-displacement*2;
-									v = v.mix(v0,t);
-								}*/
-								return v;
-							});
-							if(vs.every(function (v) { return v != null; })) {
-								if(culled_count+i_start<vertices.length) {
-									vertices.splice(i_start,culled_count,vs[0],vs[1]);
-								} else {
-									var l = vertices.length;
-									vertices.splice(i_start,l-i_start,vs[0],vs[1]);
-									vertices.splice(0,culled_count-l+i_start);
-									start = (start-(culled_count-l+i_start)+vertices.length) % vertices.length;
-								}
-								i+=2;
-							} else {
-								console.log(vs);
-								i++;
-							}
-						} else {
-							i++;
-						}
 					}
 				}
 				// Clip the polygon in side [-1,1]^3
@@ -1149,27 +1089,17 @@ $(document).ready(function() {
 				}
 				function draw_triangle(vertices,color) {
 					//var projected = vertices.map(project_vertex);
-					var v0 = Array(3);
-					var v1 = Array(3);
 					var n0 = Array(3);
 
 					// v[n] = p[n] - p[n-1]
 					// N[n] = v[n] x v[n+1]
-					vec3.subtract(vertices[0], vertices[vertices.length-1],v0);
-					vec3.subtract(vertices[1], vertices[0],v1);
+					/*var v0 = vertices[0].subtract(vertices[vertices.length-1]);
+					var v1 = vertices[1].subtract(vertices[0]);
 					vec3.cross(v0,v1,n0); 
-						vec3.scale(n0,-1);
-					vec3.subtract(vertices[0], position,v1);
-						// We may need to reverse the vertices if they do not follow the right hand rule.
-						var c = Array(3);
+					vec3.scale(n0,-1);
+					vec3.subtract(vertices[0], position,v1);*/
 
-						// c . p[0] = c . p[-1]
-						/*vec3.cross(v0,n0,c);
-						vec3.scale(c,-1);
-						var dist = vec3.dot(c,vertices[0]);
-						if(vec3.dot(c,vertices[1]) - dist < 0) {
-							vertices.reverse();
-						}*/
+					// We may need to reverse the vertices if they do not follow the right hand rule.
 // Backface culling.
 					/*if(vec3.dot(n0,v1) > 0)*/ {
 						var projected = vertices.map(function (v) { 
@@ -1346,7 +1276,7 @@ $(document).ready(function() {
 			webgl_vertex_buffer = initialize_buffer(webgl_context, webgl_vertices, Float32Array,3);
 
 // Load the colors into WebGL.
-			//webgl_color_buffer = initialize_buffer(webgl_context, webgl_colors, Float32Array,3);
+			webgl_color_buffer = initialize_buffer(webgl_context, webgl_colors, Float32Array,3);
 			webgl_normal_buffer = initialize_buffer(webgl_context, webgl_normals, Float32Array,3);
 			webgl_texture_range_buffer = initialize_buffer(webgl_context, webgl_texture_range, Float32Array,4);
 			webgl_texture_coordinate_buffer = initialize_buffer(webgl_context, webgl_texture_coordinate, Float32Array,2);
@@ -1446,22 +1376,24 @@ $(document).ready(function() {
 		if(canvas_context) {
 			canvas_context.clearRect(0,0,canvas.width,canvas.height);
 		}
-		redraw2();
 	});
 	$('#webgl_option').change(function() {
 		if(webgl_context) {
 			webgl_context.clearColor(0.5, 0.5, 0.5, 1.0);
 			webgl_context.clear(webgl_context.COLOR_BUFFER_BIT | webgl_context.DEPTH_BUFFER_BIT);
 		}
-		redraw2();
+	});
+	$('#lighting_option').change(function() {
+		use_lighting = $('#lighting_option').prop('checked');
+	});
+	$('#texturing_option').change(function() {
+		use_texturing = $('#texturing_option').prop('checked');
 	});
 	$('#wireframe_option').change(function() {
 		use_wireframe = $('#wireframe_option').prop('checked');
-		redraw2();
 	});
 	$('#map_option').change(function() {
 		player = select_map();
-		redraw2();
 	});
 // Return true if there is no intersection with the map.
 	function test_intersection(old, viewpoint) {
@@ -1471,7 +1403,9 @@ $(document).ready(function() {
 		"use strict";
 		var depressed = [];
 		window.onkeydown = function (event) {
-			if(Object.keys(config['keycodes']['keys']).indexOf(event.which.toString()) >= 0) {
+			if(Object.keys(config['keycodes']['keys']).indexOf(event.which.toString()) >= 0 ||
+				Object.keys(config['keycodes']['modifiers']).indexOf(event.which.toString()) >= 0 
+			) {
 				event.preventDefault();
 			}
 			if (depressed.indexOf(event.which) < 0) {
