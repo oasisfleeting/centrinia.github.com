@@ -148,54 +148,6 @@ Array.prototype.shuffle = function () {
 	return this;
 }//}}}
 
-// A line segment.//{{{
-function Segment(endpoint0,endpoint1)
-{
-	this.endpoints = [];
-	this.endpoints[0] = endpoint0;
-	this.endpoints[1] = endpoint1;
-
-// This vector is normal to the perpendicular line.
-	this.parallel = this.endpoints[0].subtract(this.endpoints[1]);
-	this.endpoint_displacements = [];
-	this.endpoint_displacements[0] = this.parallel.dot(this.endpoints[0]);
-	this.endpoint_displacements[1] = this.parallel.dot(this.endpoints[1]);
-	if(this.endpoint_displacements[0]>this.endpoint_displacements[1]) {
-		var t = this.endpoint_displacements[0];
-		this.endpoint_displacements[0] = this.endpoint_displacements[1];
-		this.endpoint_displacements[1] = t;
-	}
-
-// Compute the equation for the line. By convention the first endpoint is on the left when standing on
-// the positive halfplane w.r.t. the normal.
-	this.normal = new Vector2([-this.parallel.coord[1],this.parallel.coord[0]]);
-	this.displacement = this.normal.dot(this.endpoints[0]);
-
-	this.midpoint = function () {
-		return this.endpoints[0].add(this.endpoints[1]).scale(1/2);
-	};
-	this.length = function () {
-		return this.endpoints[0].distance(this.endpoints[1]);
-	};
-// Determine if a point is inside a line segment.//{{{
-	this.inside = function (vec)
-	{
-		var d = this.parallel.dot(vec);
-		return this.endpoint_displacements[0] <= d && d <= this.endpoint_displacements[1];
-	};//}}}
-// Intersect this line with the argument and return the intersection point.
-	this.intersect = function (segment)
-	{
-		var det = this.normal.coord[0]*segment.normal.coord[1]-this.normal.coord[1]*segment.normal.coord[0];
-		var a0 = this.displacement*segment.normal.coord[1]-this.normal.coord[1]*segment.displacement;
-		var a1 = this.normal.coord[0]*segment.displacement-this.displacement*segment.normal.coord[0];
-		return new Vector2([a0/det,a1/det]);
-	};
-	this.normal_equation = function (vec)
-	{
-		return this.normal.dot(vec) - this.displacement;
-	};
-}//}}}
 
 // A two dimensional vector.//{{{
 function Vector2(coord)
@@ -248,24 +200,11 @@ function Vector2(coord)
 // A viewing frustum.//{{{
 function Viewer(elevation,fov,direction,viewpoint,screen_elevations)
 {
-// Compute the location in the viewing arc that the point is in. Return a value in [0,1] if the point is in the viewing//{{{
-// frustum. The left edge of the frustum corresponds to 0 and the right edge corresponds to 1. */
-	this.arc_fraction = function (point)
-	{
-		/*var t = point.subtract(this.viewpoint);
-		var angle = Math.atan2(t.coord[1],t.coord[0]);
-
-		var result = (angle-(this.direction-this.fov/2))/this.fov;
-		return result - Math.floor(result);*/
-
-		var t = point.subtract(this.viewpoint);
-		var right_ray = this.super_frustum_right.endpoints[0].subtract(this.viewpoint);
-		//return this.map_coordinate_interval.map(right_ray.angle_to(t)/this.super_fov);
-		return right_ray.angle_to(t)/this.super_fov;
-	};//}}}
 // Update the frustum.//{{{
 	this.update = function(fov,viewpoint,direction,elevation, intersection_handler) {
-		if(!intersection_handler(viewpoint.coord.concat([elevation]))){
+		if(!intersection_handler(
+		this.viewpoint.coord.concat([this.elevation]),
+		viewpoint.coord.concat([elevation]))){
 		  return;
 		}
 		this.viewpoint = viewpoint;
@@ -281,22 +220,6 @@ function Viewer(elevation,fov,direction,viewpoint,screen_elevations)
 				this.direction_angle = 2*Math.PI - this.direction_angle;
 			}
 		}
-
-		this.frustum = [];
-
-		var left_ray = this.direction_vector.rotate(this.fov/2);
-		this.frustum[0] = new Segment(this.viewpoint, left_ray.add(this.viewpoint));
-
-		var right_ray = this.direction_vector.rotate(-this.fov/2);
-		this.frustum[1] = new Segment(right_ray.add(this.viewpoint), this.viewpoint);
-
-		this.super_direction_vector = this.direction_vector;
-		this.super_frustum_right = this.frustum[1];
-	};//}}}
-// Determine if the given point is inside the frustum.//{{{
-	this.inside_frustum = function(point)
-	{
-		return this.frustum[0].normal_equation(point)>0 && this.frustum[1].normal_equation(point)>0;
 	};//}}}
 // Move the viewpoint forward.//{{{
 	this.move_forward = function (step, intersection_handler)
@@ -346,6 +269,7 @@ function Viewer(elevation,fov,direction,viewpoint,screen_elevations)
 		this.screen_elevations = [[0,0],[canvas_element.height,canvas_element.height]];
 	}
 	this.stepDistance = 0;
+	this.viewpoint = viewpoint;
 	this.update(fov,viewpoint,direction,elevation, function (v,e) { return true;});
 }//}}}
 
@@ -362,44 +286,178 @@ function rgb(color) {
 }
 
 function Plane(definition) {
-	this.normal = definition['normal'];
+	definition.object = this;
+	this.normal = Vector.create(definition['normal']);
 	this.displacement = definition['dist'];
-	this.normal_equation = function (point) {
-		var result = -this.displacement;
-		for(var i=0;i<3;i++) {
-			result += point[i]*this.normal[i];
-		}
-		return result;
-	};
 }
-	Plane.prototype.intersect_line = function (start,end) {
-		var n = this.normal.concat([-this.displacement]);
-		var direction = vec4_sub(start,end);
-		var denominator = vec4_dot(direction,n);
-		if(denominator != 0) {
-			var vector = new Array(4);
-			t = vec4_dot(n,start) / denominator;
-			for(var i=0;i<4;i++) {
-				vector[i] = start[i] * (1-t) + end[i]*(t);
-			}
-			return {
-				't' : t,
-				'vector' : vector
-			};
-		} else {
-			return null;
-		}
-	};
+Plane.prototype.normal_equation = function (point) {
+	return this.normal.dot(point)-this.displacement;
+};
 
-function Leaf(leaf,level,parent_node) {
-	this.type = leaf['type'];
+Plane.prototype.intersect_line = function (start,end) {
+	var n = this.normal.concat([-this.displacement]);
+	var direction = start.subtract(end);
+	var denominator = direction.dot(n);
+	if(denominator != 0) {
+		t = n.dot(start) / denominator;
+		var vector = start.mix(end, t);
+		return {
+			't' : t,
+			'vector' : vector
+		};
+	} else {
+		return null;
+	}
+};
+Plane.prototype.closest_point_to = function (start,end) {
+	return null;
+};
+
+function Face(definition,level,buffers) {
+	var indexes = definition['vertices index'];
+
+	var head = indexes[0];
+	var tail1 = indexes.slice(1,indexes.length-1);
+	var tail2 = indexes.slice(2,indexes.length);
+	var face_color = [Math.random(),Math.random(),Math.random()];
+	//var face_normal = new Array(3);
+	//var face_tangent  = new Array(3);
+	var v0 = new Array(3);
+	var v1 = new Array(3);
+
+	this.vertices = indexes.map(function (index) {
+		return level['vertices'][index];
+	});
+	/*var j=0;
+	do {
+		vec3.subtract(level['vertices'][indexes[j]],level['vertices'][indexes[j+1]],v0);
+
+		var i=2+j;
+		do {
+			vec3.subtract(level['vertices'][indexes[i]],level['vertices'][indexes[j+1]],v1);
+			vec3.cross(v0,v1,face_normal);
+			i++;
+		} while(i < indexes.length && (vec3.length(face_normal) < 1e-2));
+
+		vec3.cross(v0,v1,face_normal);
+	} while(j+2 < indexes.length && vec3.length(face_normal) < 1e-2);
+	this.normal = vec3.normalize(face_normal);*/
+	this.plane = level['planes'][definition['plane id']];
+
+	if(!this.plane.object) {
+		this.plane.object = new Plane(this.plane);
+	}
+
+	this.edge_planes = [];
+	for(var i=0;i<this.vertices.length;i++) {
+		var v = new Array(3);
+		var tangent_normal = new Array(3);
+		vec3.subtract(this.vertices[(this.vertices.length+i-1) % this.vertices.length], this.vertices[i], v);
+		vec3.cross(v, this.plane.object.normal,tangent_normal);
+		vec3.normalize(tangent_normal);
+		var edge_plane = new Plane({ 'normal' : tangent_normal, 'dist' : vec3.dot(tangent_normal, this.vertices[i])})
+		edge_plane.vertex = this.vertices[i];
+		this.edge_planes.push(edge_plane);
+	}
+
+	var levelname = level['filename'];
+	var texture_index = definition['texture index'];
+	var texinfo = level['textures'][texture_index];
+	var atlas_entry = texture_indexes[levelname][texinfo['miptex index']];
+	function compute_texture_coord(vertex,vector,dist) {
+		return vec3.dot(vertex,vector)+dist;
+	}
+
+	function get_index(index) {
+		if(use_individual_vertices) {
+			var result = buffers['vertex'].length;
+			var vertex = level['vertices'][index];
+			buffers['vertex'].push(vertex);
+			buffers['color'].push(face_color);
+			//buffers['normal'].push(this.plane.object.normal.coord);
+			buffers['normal'].push(this.plane.normal);
+
+			// [x,y,w,h]
+			var texrange = atlas_entry['begin'].concat(atlas_entry['size']);
+			if(atlas_entry['texture name'].substr(0,3) == 'sky') {
+				texrange[2] = -texrange[2];
+				texrange[3] = -texrange[3];
+			}
+			buffers['texture range'].push(texrange);
+
+			//s = dotproduct(Vertex,vectorS) + distS;    
+			//t = dotproduct(Vertex,vectorT) + distT;
+			var texcoord = new Array(2); // [s,t]
+			for(var i=0;i<2;i++) {
+				var vector = texinfo['vectors'][i];
+				var dist = texinfo['displacements'][i];
+				//texcoord[i] = Math.mod(compute_texture_coord(vertex,vector,dist),atlas_entry['size'][i]);
+				texcoord[i] = compute_texture_coord(vertex,vector,dist);
+			}
+			buffers['texture coordinate'].push(texcoord);
+
+			return result;
+		} else {
+			return index;
+		}
+	}
+	this.triangles = new Array(indexes.length-2);
+	this.edges = new Array(indexes.length);
+	var head_index = get_index.call(this,head);
+	for(var i=0;i<tail1.length;i++) {
+		var tail1_index = get_index.call(this,tail1[i]);
+		var tail2_index = get_index.call(this,tail2[i]);
+		this.triangles[i] = [head_index, tail1_index, tail2_index];
+		this.edges[i+1] = [tail1_index, tail2_index];
+	}
+	this.edges[0] = [head_index,this.triangles[0][0]];
+	this.edges[indexes.length-1] = [this.triangles[this.triangles.length-1][2],head_index];
+
+}
+Face.prototype.intersects_sphere = function (center,radius) {
+	if(Math.abs(this.plane.object.normal_equation(center)) > radius) {
+		return false;
+	}
+	var ray_intersects_sphere = function (start, normal, center,radius) {
+		var m = vector_subtract(start,center);
+		var c = vector_dot(m,m) - radius*radius;
+		if(c<=0) {
+			return true;
+		}
+		var b = vector_dot(m, normal);
+		if(b > 0) {
+			return false;
+		}
+		var discriminant = b*b-c;
+		if(discriminant < 0) {
+			return false;
+		}
+		return true;
+	}
+	for(var i=0,j=this.vertices.length-1;i<this.vertices.length;j=i,i++) {
+		var start = this.vertices[j];
+		var normal = vector_normalize(vector_subtract(this.vertices[i],start));
+		
+		if(ray_intersects_sphere(start, normal), center,radius) {
+			return true;
+		}
+	}
+	var closest_point = this.plane.object.closest_point_to(center);
+	return false;
+};
+
+
+function Leaf(leaf_definition,level,parent_node) {
+	this.type = leaf_definition['type'];
 	this.depth = parent_node.depth+1;
 	this.parent_node = parent_node;
-	this.visilist_start = leaf['visilist start'];
-	this.face_indexes = leaf['face indexes'];
+	this.visilist_start = leaf_definition['visilist start'];
+	this.face_indexes = leaf_definition['face indexes'];
+	this.faces = [];
+	leaf_definition.object = this;
 }
 
-function Node(node,level,parent_node) {
+function Node(node_definition,level,parent_node) {
 	if(parent_node) {
 		this.parent_node = parent_node;
 		this.depth = parent_node.depth+1;
@@ -407,10 +465,11 @@ function Node(node,level,parent_node) {
 		this.parent_node = null;
 		this.depth = 0;
 	}
-	this.plane = new Plane(level['planes'][node['plane id']]);
+	node_definition.object = this;
+	this.plane = new Plane(level['planes'][node_definition['plane id']]);
 
 	var this_node = this;
-	this.child_nodes = node['children nodes'].map(function (index) {
+	this.child_nodes = node_definition['children nodes'].map(function (index) {
 		var definition = level['nodes'][index];
 		if(definition != null) {
 			return new Node(definition,level,this_node);
@@ -418,9 +477,9 @@ function Node(node,level,parent_node) {
 			return null;
 		}
 	});
-	this.child_leaves = node['children leaves'].map(function (index) {
+	this.child_leaves = node_definition['children leaves'].map(function (index) {
 		var definition = level['leaves'][index];
-		if(definition != null) {
+		if(definition) {
 			leaf = new Leaf(definition,level,this_node);
 			leaf.index = index;
 			return leaf;
@@ -428,86 +487,125 @@ function Node(node,level,parent_node) {
 			return null;
 		}
 	});
-	// Visit every leaf and node in infix order and call the handler on them.
-	this.dfs = function (point,leaf_handler,node_handler,back_to_front) {
-		var d = this.plane.normal_equation(point);
-		var side = d > 0 ? 0 : 1;
-		if(back_to_front) {
-			side = 1-side;
-		}
-		if(node_handler) {
-			node_handler(this);
-		}
-		for(var i=0;i<2;i++) {
-			var index = side^i;
-			var node = this.child_nodes[index];
-
-			if(node == null) {
-				var leaf = this.child_leaves[index];
-				if(leaf_handler) {
-					leaf_handler(leaf);
-				}
-			} else {
-				node.dfs(point,leaf_handler,node_handler,back_to_front);
-			}
-		}
-	};
-	// Find the leaf that contains this point.
-	this.find_leaf = function (point) {
-		var node = this;
-		var leaf = null;
-
-		do {
-			var d = node.plane.normal_equation(point);
-			var side = d > 0 ? 0 : 1;
-			leaf = node.child_leaves[side];
-			node = node.child_nodes[side];
-		} while(node != null);
-		return leaf;
-	}
-	this.leaves = function () {
-		var accumulator = [];
-		this.child_nodes.forEach(function (node) {
-			if(node != null) {
-				$.extend(accumulator,node.leaves());
-			}
-		});
-		this.child_leaves.forEach(function (leaf) {
-			if(leaf != null) {
-				accumulator[leaf.index] = leaf;
-			}
-		});
-		return accumulator;
-	}
 }
-				function vec4_scale(a,b) {
-					var c = new Array(4);
-					for(var i=0;i<4;i++) {
-						c[i] = a[i]*b;
-					}
-					return c;
-				}
-				function vec4_dot(a,b) {
-					var c = 0;
-					for(var i=0;i<4;i++) {
-						c += a[i]*b[i];
-					}
-					return c;
-				}
-				function vec4_add(a,b) {
-					var c = new Array(4);
-					for(var i=0;i<4;i++) {
-						c[i] = a[i]+b[i];
-					}
-					return c;
-				}
-				function vec4_sub(a,b) {
-					var c = new Array(4);
-					for(var i=0;i<4;i++) {
-						c[i] = a[i]-b[i];
-					}
-					return c;
-				}
+// Visit every leaf and node in infix order and call the handler on them.
+Node.prototype.dfs = function (point,leaf_handler,node_handler,back_to_front) {
+	var d = this.plane.normal_equation(point);
+	var side = d > 0 ? 0 : 1;
+	if(back_to_front) {
+		side = 1-side;
+	}
+	if(node_handler) {
+		node_handler(this);
+	}
+	for(var i=0;i<2;i++) {
+		var index = side^i;
+		var node = this.child_nodes[index];
+
+		if(node == null) {
+			var leaf = this.child_leaves[index];
+			if(leaf_handler) {
+				leaf_handler(leaf);
+			}
+		} else {
+			node.dfs(point,leaf_handler,node_handler,back_to_front);
+		}
+	}
+};
+// Find the leaf that contains this point.
+Node.prototype.find_leaf = function (point) {
+	var node = this;
+	var leaf = null;
+
+	do {
+		var d = node.plane.normal_equation(point);
+		var side = d > 0 ? 0 : 1;
+		leaf = node.child_leaves[side];
+		node = node.child_nodes[side];
+	} while(node != null);
+	return leaf;
+}
+Node.prototype.leaves = function () {
+	var accumulator = [];
+	this.child_nodes.forEach(function (node) {
+		if(node != null) {
+			$.extend(accumulator,node.leaves());
+		}
+	});
+	this.child_leaves.forEach(function (leaf) {
+		if(leaf != null) {
+			accumulator[leaf.index] = leaf;
+		}
+	});
+	return accumulator;
+};
+
+function Vector(length) {
+	this.coord = new Array(length);
+}
+Vector.create = function(coord) {
+	var result = new Vector(coord.length);
+	for(var i=0;i<coord.length;i++) {
+		result.coord[i] = coord[i];
+	}
+	return result;
+};
+Vector.prototype.dot = function(b) {
+	var c = 0;
+	for(var i=0;i<this.coord.length;i++) {
+		c += this.coord[i] * b.coord[i];
+	}
+	return c;
+};
+Vector.prototype.distance = function(b) {
+	var c = 0;
+	for(var i=0;i<this.coord.length;i++) {
+		var t = this.coord[i] - b.coord[i];
+		c += t*t;
+	}
+	return Math.sqrt(c);
+};
+Vector.prototype.scale = function (s) {
+	var c = new Vector(this.length);
+	for(var i=0;i<this.coord.length;i++) {
+		c.coord[i] = this.coord[i] * s;
+	}
+	return c;
+};
+Vector.prototype.normalize = function() {
+	var n = 0;
+	for(var i=0;i<this.coord.length;i++) {
+		n += this.coord[i] * this.coord[i];
+	}
+	n = Math.sqrt(n);
+	var c = new Vector(this.length);
+	for(var i=0;i<this.coord.length;i++) {
+		c.coord[i] = this.coord[i] / n;
+	}
+	return c;
+};
+Vector.prototype.add = function(b) {
+	var c = new Vector(this.length);
+	for(var i=0;i<this.coord.length;i++) {
+		c.coord[i] = this.coord[i] + b.coord[i];
+	}
+	return c;
+};
+Vector.prototype.subtract = function(b) {
+	var c = new Vector(this.length);
+	for(var i=0;i<this.coord.length;i++) {
+		c.coord[i] = this.coord[i] - b.coord[i];
+	}
+	return c;
+};
+Vector.prototype.mix = function(b, t) {
+	var c = new Vector(this.length);
+	for(var i=0;i<this.coord.length;i++) {
+		c.coord[i] = this.coord[i]*(1-t) + b.coord[i]*t;
+	}
+	return c;
+};
+
 function clip_polygon_cascade(vertices, planes) {
 	var pipeline = planes.map(function (plane) {
 		return {
@@ -528,7 +626,7 @@ function clip_polygon_cascade(vertices, planes) {
 	}
 
 	function dot(plane,v) {
-		return vec3.dot(plane.normal,v) - plane.displacement*v[3];
+		return plane.normal.dot(v) - plane.displacement*v.coord[3];
 	}
 	var advance_pipeline = function(worker,vertex) {
 		if(worker['next']) {
@@ -665,6 +763,7 @@ $(document).ready(function() {
 			webgl_shader_program.texture_size_uniform = webgl_context.getUniformLocation(webgl_shader_program, "texture_size");
 			webgl_shader_program.samplerUniform = webgl_context.getUniformLocation(webgl_shader_program, "uSampler");
 			webgl_shader_program.pMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uPMatrix");
+			webgl_shader_program.mvRotTMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uMVRotTMatrix");
 			webgl_shader_program.mvMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uMVMatrix");
 			webgl_shader_program.nMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uNMatrix");
 
@@ -729,7 +828,7 @@ $(document).ready(function() {
 
 
 		bsp = new Node(level['nodes'][0],level);
-		leaves = bsp.leaves();
+		//leaves = level['leaves'].map(function (definition) { return definition.object; });
 
 		webgl_vertices = [];
 		webgl_normals = [];
@@ -743,144 +842,16 @@ $(document).ready(function() {
 
 
 		//s = dotproduct(Vertex,vectorS) + distS;    
-		function compute_texture_coord(vertex,vector,dist) {
-			return vec3.dot(vertex,vector)+dist;
-		}
-		level['leaves'].forEach(function (leaf) {
-			var center = [0,0,0];
-			var count = 0;
-			leaf['face indexes']
-			.forEach(function (index) {
-				var face_definition = level['faces'][index];
-				var vertexes = face_definition['vertices index']
-					.map(function (index) { return level['vertices'][index]; });
-				vertexes.forEach(function (vertex) {
-					for(var i=0;i<3;i++) {
-						center[i] += vertex[i];
-						count++;
-					}
-				});
-			});
-			for(var i=0;i<3;i++) {
-				center[i] /= count;
-			}
-			//console.log(leaf);
-			leaf['face indexes']
-			.forEach(function (index) {
-				var face_definition = level['faces'][index];
-				var vertexes = face_definition['vertices index']
-					.map(function (index) { return level['vertices'][index]; });
-				var v0 = new Array(3);
-				var v1 = new Array(3);
-				var face_normal = new Array(3);
-				var dist;
-						//var vertex = level['vertices'][index];
-				vec3.subtract(vertexes[0],vertexes[1],v0);
-				var i=2;
-				do {
-					vec3.subtract(vertexes[i],vertexes[1],v1);
-					vec3.cross(v0,v1,face_normal);
-					i++;
-				} while(i < vertexes.length && face_normal == [0,0,0]);
-
-				dist = vec3.dot(face_normal, vertexes[1]);
-				face_definition.flipped = vec3.dot(face_normal, center) - dist < 0;
-				face_definition.face_normal = face_normal;
-				//console.log(face_definition);
-			})
-		});
-		faces = level['faces'].map(
+		level['faces'].forEach(
 			function (definition) {
-				var indexes = definition['vertices index'];
-
-				var head = indexes[0];
-				var tail1 = indexes.slice(1,indexes.length-1);
-				var tail2 = indexes.slice(2,indexes.length);
-				var triangles = new Array(indexes.length-2);
-				var edges = new Array(indexes.length);
-				var face_color = [Math.random(),Math.random(),Math.random()];
-				var face_normal = new Array(3);
-				var face_tangent  = new Array(3);
-				var v0 = new Array(3);
-				var v1 = new Array(3);
-				//vec3.subtract(level['vertices'][indexes[indexes.length-1]],level['vertices'][indexes[0]],v0);
-				/*if(definition.face_normal) {
-					face_normal = definition.face_normal;
-					console.log(face_normal);
-				} else*/ {
-					var j=0;
-					do {
-						vec3.subtract(level['vertices'][indexes[j]],level['vertices'][indexes[j+1]],v0);
-
-					var i=2+j;
-					do {
-						vec3.subtract(level['vertices'][indexes[i]],level['vertices'][indexes[j+1]],v1);
-						vec3.cross(v0,v1,face_normal);
-						i++;
-					} while(i < indexes.length && (vec3.length(face_normal) < 1e-2));
-
-					//vec3.subtract(level['vertices'][indexes[1]],level['vertices'][indexes[0]],v1);
-					vec3.cross(v0,v1,face_normal);
-					} while(j+2 < indexes.length && vec3.length(face_normal) < 1e-2);
-					//face_normal = [1,1,1];
-				}
-
-				/*vec3.cross(v0,face_normal,face_tangent);
-				if(vec3.dot(v1,face_tangent) > 0) {
-					//vec3.scale(face_normal,-1);
-				}*/
-				face_normal = vec3.normalize(face_normal);
-
-				/*if(!definition.flipped) {
-					vec3.scale(face_normal,-1);
-				}*/
-
-				var levelname = level['filename'];
-				var texture_index = definition['texture index'];
-				var texinfo = level['textures'][texture_index];
-				var atlas_entry = texture_indexes[levelname][texinfo['miptex index']];
-				function get_index(index) {
-					if(use_individual_vertices) {
-						var result = webgl_vertices.length;
-						var vertex = level['vertices'][index];
-						webgl_vertices.push(vertex);
-						webgl_colors.push(face_color);
-						webgl_normals.push(face_normal);
-
-						// [x,y,w,h]
-						var texrange = atlas_entry['begin'].concat(atlas_entry['size']);
-						if(atlas_entry['texture name'].substr(0,3) == 'sky') {
-							texrange[2] = -texrange[2];
-							texrange[3] = -texrange[3];
-						}
-						webgl_texture_range.push(texrange);
-
-						//s = dotproduct(Vertex,vectorS) + distS;    
-						//t = dotproduct(Vertex,vectorT) + distT;
-						var texcoord = new Array(2); // [s,t]
-						for(var i=0;i<2;i++) {
-							var vector = texinfo['vectors'][i];
-							var dist = texinfo['displacements'][i];
-							//texcoord[i] = Math.mod(compute_texture_coord(vertex,vector,dist),atlas_entry['size'][i]);
-							texcoord[i] = compute_texture_coord(vertex,vector,dist);
-						}
-						webgl_texture_coordinate.push(texcoord);
-
-						return result;
-					} else {
-						return index;
-					}
-				}
-				head_index = get_index(head);
-				for(var i=0;i<tail1.length;i++) {
-					var tail1_index = get_index(tail1[i]);
-					var tail2_index = get_index(tail2[i]);
-					triangles[i] = [head_index, tail1_index, tail2_index];
-					edges[i+1] = [tail1_index, tail2_index];
-				}
-				edges[0] = [head_index,triangles[0][0]];
-				edges[indexes.length-1] = [triangles[triangles.length-1][2],head_index];
-				return { 'triangles': triangles, 'edges': edges};
+				definition.object = new Face(definition,level,
+				{
+					'vertex' : webgl_vertices,
+					'normal' : webgl_normals,
+					'color' : webgl_colors,
+					'texture range' : webgl_texture_range,
+					'texture coordinate' : webgl_texture_coordinate
+				});
 			}
 		);
 		visilist = level['visibility list'];
@@ -946,8 +917,17 @@ $(document).ready(function() {
 		}
 		init_texture();
 
-		leaves.forEach(function (leaf) {
-			leaf.color = [Math.random(),Math.random(),Math.random(),1];
+		level['leaves'].forEach(function (leaf_definition) {
+			if(leaf_definition.object) {
+				//leaf_definition.object.color = [Math.random(),Math.random(),Math.random(),1];
+				leaf_definition.object.faces = [];
+				leaf_definition['face indexes'].forEach(
+					function (face_index) {
+						var face_definition = level['faces'][face_index];
+						leaf_definition.object.faces.push(face_definition);
+					}
+				);
+			}
 		});
 
 		player_origin = level['player start']['origin'];
@@ -964,6 +944,7 @@ $(document).ready(function() {
 		log_traverse_count=0;
 
 		var mvMatrix = mat4.create();
+		var mvRotTMatrix = mat4.create();
 		var pMatrix = mat4.create();
 		//mat4.perspective(60, webgl_context.viewportWidth / webgl_context.viewportHeight, 0.1, 100.0, pMatrix);
 		mat4.perspective(60, canvas_element.width / canvas_element.height, 0.1, 100.0, pMatrix);
@@ -975,14 +956,22 @@ $(document).ready(function() {
 			0,0,0,0.95
 		],pMatrix,pMatrix);*/
 
+		mat4.identity(mvRotTMatrix);
+		mat4.rotate(mvRotTMatrix, Math.PI/2-player.direction_angle, [0,0,1]);
+		mat4.rotate(mvRotTMatrix, -Math.PI/2, [1,0,0]);
+		mat4.rotate(mvRotTMatrix, pitch_angle, [1,0,0]);
+		mat4.rotate(mvRotTMatrix, roll_angle, [0,0,1]);
+
 		mat4.identity(mvMatrix);
+
 		mat4.scale(mvMatrix,[1/100,1/100,1/100]);
+
 		mat4.rotate(mvMatrix, roll_angle, [0,0,1]);
 		mat4.rotate(mvMatrix, pitch_angle, [1,0,0]);
 		mat4.rotate(mvMatrix, -Math.PI/2, [1,0,0]);
 		mat4.rotate(mvMatrix, Math.PI/2-player.direction_angle, [0,0,1]);
 		mat4.translate(mvMatrix, [-player.viewpoint.coord[0], -player.viewpoint.coord[1], -player.elevation]);
-	
+
 		//mat4.identity(mvMatrix);
 //pMatrix=[-0.017107263207435608, 1.6590503052034653e-19, 0.0015674764290452003, 0.0015643446240574121, -0.002709524240344763, -1.0474832115039693e-18, -0.009896657429635525, -0.009876883588731289, 0, 0.017320508137345314, -6.13529011016107e-19, -6.123031810470917e-19, 10.528736114501953, -0.5822814106941223, 1.9998770952224731, 2.195681571960449];
 // Clear the automap.
@@ -994,7 +983,7 @@ $(document).ready(function() {
 
 
 
-			function setMatrixUniforms(p,mv) {
+			function setMatrixUniforms(p,mv,mvrot) {
 				var n = mat3.create();
 
 				mat4.toInverseMat3(mv, n);
@@ -1002,6 +991,7 @@ $(document).ready(function() {
 
 				webgl_context.uniformMatrix4fv(webgl_shader_program.pMatrixUniform, false, p);
 				webgl_context.uniformMatrix4fv(webgl_shader_program.mvMatrixUniform, false, mv);
+				webgl_context.uniformMatrix4fv(webgl_shader_program.mvRotTMatrixUniform, false, mvrot);
 				webgl_context.uniformMatrix3fv(webgl_shader_program.nMatrixUniform, false, n);
 			}
 
@@ -1032,27 +1022,27 @@ $(document).ready(function() {
 			webgl_context.bindTexture(webgl_context.TEXTURE_2D, texture_atlas);
 			webgl_context.uniform1i(webgl_shader_program.samplerUniform, 0);
 
-			setMatrixUniforms(pMatrix,mvMatrix);
+			setMatrixUniforms(pMatrix,mvMatrix,mvRotTMatrix);
 		}
 		if(use_canvas && canvas_context){
 			canvas_context.clearRect(0,0,canvas.width,canvas.height);
 		}
 
-		var position = [player.viewpoint.coord[0], player.viewpoint.coord[1], player.elevation];
+		var position = Vector.create([player.viewpoint.coord[0], player.viewpoint.coord[1], player.elevation]);
 		var leaf = bsp.find_leaf(position);
 		
 		var visible_leaves;
 		if(visilist) {
 			visible_leaves = [leaf];
 			var list_index = leaf.visilist_start;
-			for(var i=1;i<leaves.length;list_index++) {
+			for(var i=1;i<level['leaves'].length && level['leaves'][i]['visilist start']>=0;list_index++) {
 				if(visilist[list_index] == 0) {
 					i += 8*visilist[list_index+1];
 					list_index++;
 				} else {
 					for(var j=0;j<8;j++,i++) {
 						if(((visilist[list_index] >> j) & 1) != 0) {
-							var leaf = leaves[i];
+							var leaf = level['leaves'][i].object;
 							visible_leaves.push(leaf);
 						}
 					}
@@ -1098,14 +1088,14 @@ $(document).ready(function() {
 			leaves.forEach(function (leaf) {
 				leaf.face_indexes.forEach(function(face_index) {
 					if(use_canvas) {
-						indexes.push(faces[face_index]['edges'].map(function (primitive_indexes) {
+						indexes.push(level['faces'][face_index].object['edges'].map(function (primitive_indexes) {
 							return primitive_indexes[0];
 						}));
 						/*faces[face_index]['triangles'].forEach(function(primitive_indexes) {
 							indexes.push(primitive_indexes);
 						});*/
 					} else {
-						faces[face_index][primitive_key].forEach(function(primitive_indexes) {
+						level['faces'][face_index].object[primitive_key].forEach(function(primitive_indexes) {
 							/*primitive_indexes.forEach(function (vertex_index) {
 								indexes.push(vertex_index);
 							});*/
@@ -1168,12 +1158,12 @@ $(document).ready(function() {
 					// [n,-d].([l1*t,w1]+[l0*(1-t),w0]) = 0
 					// Adding two vectors in projective space is given by [x0,w0] + [x1,w1] = [x0*w1+x1*w0,w0*w1]
 					var n = normal.concat([-dist]);
-					var direction = vec4_sub(start,end);
+					var direction = start.subtract(end);
 					//var denominator = vec3.dot(direction,normal);
-					var denominator = vec4_dot(direction,n);
+					var denominator = n.dot(direction);
 					if(denominator != 0) {
 						//var t = (dist - vec3.dot(start,normal)) / denominator;
-						t = vec4_dot(n,start) / denominator;
+						t = n.dot(start) / denominator;
 						//var vector = new Array(3);
 						//vec3.scale(direction,t,vector);
 						//vec3.add(start,vector,vector);
@@ -1243,7 +1233,7 @@ $(document).ready(function() {
 								if(displacement < 0) {
 								// Interpolate between (v,v0) at 1+displacement*2
 									var t=-displacement*2;
-									v = vec4_add(vec4_scale(v,1-t),vec4_scale(v0,t));
+									v = v.mix(v0,t);
 								}*/
 								return v;
 							});
@@ -1452,7 +1442,8 @@ $(document).ready(function() {
 		player = select_map();
 		redraw2();
 	});
-	function test_intersection(viewpoint) {
+// Return true if there is no intersection with the map.
+	function test_intersection(old, viewpoint) {
 		return true;
 	}
 	(function () {
