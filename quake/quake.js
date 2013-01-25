@@ -1,5 +1,3 @@
-
-
 var texture_images;
 var log_draw_count;
 var log_traverse_count;
@@ -293,21 +291,22 @@ function Plane(definition) {
 	this.normal = Vector.create(definition['normal']);
 	this.displacement = definition['dist'];
 
-	var normal_length = this.normal.norm();
-	this.normal = this.normal.scale(normal_length);
-	this.displacement /= normal_length;
+	/*var normal_length = this.normal.norm();
+	this.normal = this.normal.scale(1/normal_length);
+	this.displacement /= normal_length;*/
 }
 Plane.prototype.normal_equation = function (point) {
 	return this.normal.dot(point)-this.displacement;
 };
 
-Plane.prototype.intersect_line = function (start,end) {
-	var n = this.normal.concat([-this.displacement]);
-	var direction = start.subtract(end);
+Plane.prototype.intersect_line = function (endpoints) {
+	//var n = this.normal.coord.concat([-this.displacement]);
+	var n = this.normal.copy().set_at(3, -this.displacement);
+	var direction = endpoints[0].subtract(endpoints[1]);
 	var denominator = direction.dot(n);
 	if(denominator != 0) {
-		t = n.dot(start) / denominator;
-		var vector = start.mix(end, t);
+		t = n.dot(endpoints[0]) / denominator;
+		var vector = endpoints[0].mix(endpoints[1], t);
 		return {
 			't' : t,
 			'vector' : vector
@@ -348,16 +347,25 @@ function Face(definition,level,buffers) {
 			//vec3.subtract(level['vertices'][indexes[i]],level['vertices'][indexes[j+1]],v1);
 			face_normal = v0.cross(v1).normalize();
 			i++;
-		} while(i < indexes.length && (face_normal.norm() < 1e-5));
+		} while(i < indexes.length && (face_normal.norm() < 1-10));
 		j++;
-	} while(j+2 < indexes.length && face_normal.norm() < 1e-5);
+	} while(j+2 < indexes.length && face_normal.norm() <1e-10);
 	this.normal = face_normal;
 	
-	//console.log(this.normal.dot(this.plane.object.normal));
+		
+	if(Math.abs(this.normal.dot(this.plane.object.normal)) < (1-1e-5)) {
+	console.log(this.normal.dot(this.plane.object.normal));
+	console.log(this.normal.coord);
+	console.log(this.plane.object.normal.coord);
+	console.log(this);
+	}
 	//this.normal = this.plane.object.normal;
 
-	var face_color = Vector.create(
+	/*var face_color = Vector.create(
 		this.normal.normalize().coord.map(function (c) { return (c+1)/2; })
+	);*/
+	var face_color = Vector.create(
+		[Math.random(),Math.random(),Math.random()]
 	);
 	face_color.coord.push(1);
 
@@ -379,14 +387,14 @@ function Face(definition,level,buffers) {
 	var texinfo = level['textures'][texture_index];
 	var atlas_entry = texture_indexes[levelname][texinfo['miptex index']];
 	function compute_texture_coord(vertex,vector,dist) {
-		return vec3.dot(vertex,vector)+dist;
+		return vertex.dot(vector)+dist;
 	}
 
 	function get_index(index) {
 		if(use_individual_vertices) {
 			var result = buffers['vertex'].length;
-			var vertex = level['vertices'][index];
-			buffers['vertex'].push(vertex);
+			var vertex = Vector.create(level['vertices'][index]);
+			buffers['vertex'].push(vertex.coord);
 			buffers['color'].push(face_color.coord);
 			//buffers['normal'].push(this.plane.object.normal.coord);
 			buffers['normal'].push(this.normal.coord);
@@ -403,7 +411,7 @@ function Face(definition,level,buffers) {
 			//t = dotproduct(Vertex,vectorT) + distT;
 			var texcoord = new Array(2); // [s,t]
 			for(var i=0;i<2;i++) {
-				var vector = texinfo['vectors'][i];
+				var vector = Vector.create(texinfo['vectors'][i]);
 				var dist = texinfo['displacements'][i];
 				//texcoord[i] = Math.mod(compute_texture_coord(vertex,vector,dist),atlas_entry['size'][i]);
 				texcoord[i] = compute_texture_coord(vertex,vector,dist);
@@ -554,105 +562,6 @@ Node.prototype.leaves = function () {
 	return accumulator;
 };
 
-function Vector(length) {
-	this.coord = new Array(length);
-}
-Vector.create = function(coord) {
-	var result = new Vector(coord.length);
-	for(var i=0;i<coord.length;i++) {
-		result.coord[i] = coord[i];
-	}
-	return result;
-};
-
-// TODO: Make this n-dimensional.
-Vector.prototype.cross = function(b) {
-	var c = new Vector(3);
-	c.coord[0] = this.coord[1] * b.coord[2] - this.coord[2] * b.coord[1];
-	c.coord[1] = - (this.coord[0] * b.coord[2] - this.coord[2] * b.coord[0]);
-	c.coord[2] = this.coord[0] * b.coord[1] - this.coord[1] * b.coord[0];
-	return c;
-}
-Vector.prototype.dot = function(b) {
-	var c = 0;
-	for(var i=0;i<this.coord.length;i++) {
-		c += this.coord[i] * b.coord[i];
-	}
-	return c;
-};
-Vector.prototype.distance = function(b) {
-	var c = 0;
-	for(var i=0;i<this.coord.length;i++) {
-		var t = this.coord[i] - b.coord[i];
-		c += t*t;
-	}
-	return Math.sqrt(c);
-};
-Vector.prototype.scale = function (s) {
-	var c = new Vector(this.coord.length);
-	for(var i=0;i<this.coord.length;i++) {
-		c.coord[i] = this.coord[i] * s;
-	}
-	return c;
-};
-Vector.prototype.norm = function() {
-	var n = 0;
-	for(var i=0;i<this.coord.length;i++) {
-		n += this.coord[i] * this.coord[i];
-	}
-	return Math.sqrt(n);
-}
-Vector.prototype.normalize = function() {
-	var c = new Vector(this.coord.length);
-	var t = this.norm();
-	if(t != 0) {
-		t = 1/t;
-	}
-	for(var i=0;i<this.coord.length;i++) {
-		c.coord[i] = this.coord[i] * t;
-	}
-	return c;
-};
-Vector.prototype.add = function(b) {
-	var c = new Vector(this.coord.length);
-	for(var i=0;i<this.coord.length;i++) {
-		c.coord[i] = this.coord[i] + b.coord[i];
-	}
-	return c;
-};
-Vector.prototype.subtract = function(b) {
-	var c = new Vector(this.coord.length);
-	for(var i=0;i<this.coord.length;i++) {
-		c.coord[i] = this.coord[i] - b.coord[i];
-	}
-	return c;
-};
-Vector.prototype.mix = function(b, t) {
-	var c = new Vector(this.coord.length);
-	for(var i=0;i<this.coord.length;i++) {
-		c.coord[i] = this.coord[i]*(1-t) + b.coord[i]*t;
-	}
-	return c;
-};
-Vector.prototype.angle_to = function (vec) {
-	var d = vec.normalize().dot(this.normalize());
-	// |d| may be greater than unity because of rounding errors.
-	d = Math.abs(d) < 1 ? d : (d < 0 ? -1 : 1);
-	return Math.acos(d);
-};
-Vector.prototype.rotate2d = function (angle) {
-	var cs = Math.cos(angle);
-	var sn = Math.sin(angle);
-	var c = Vector.create(this.coord.length);
-	c.coord[0] = cs * this.coord[0] - sn*this.coord[1];
-	c.coord[1] = sn * this.coord[0] + cs*this.coord[1];
-	for(var i=2;i<this.coord.length;i++) {
-		c.coord[i] = this.coord[i];
-	}
-	return c;
-}
-
-
 function clip_polygon_cascade(vertices, planes) {
 	var pipeline = planes.map(function (plane) {
 		return {
@@ -666,7 +575,6 @@ function clip_polygon_cascade(vertices, planes) {
 		'next' : null,
 		'vertices' : []
 	});
-
 
 	for(var i=1;i<pipeline.length;i++) {
 		pipeline[i-1]['next'] = pipeline[i];
@@ -690,9 +598,9 @@ function clip_polygon_cascade(vertices, planes) {
 				});
 
 				if(inside[0] ^ inside[1]) {
-					var intersection = Plane.prototype.intersect_line.apply(worker['plane'],working);
+					var intersection = worker['plane'].intersect_line(working);
 					if(!intersection) {
-						console.log(working);
+						//console.log(working);
 						intersection = {'vector':working[1]};
 					}
 					advance_pipeline(worker['next'],intersection['vector']);
@@ -813,7 +721,6 @@ $(document).ready(function() {
 			webgl_shader_program.texture_size_uniform = webgl_context.getUniformLocation(webgl_shader_program, "texture_size");
 			webgl_shader_program.samplerUniform = webgl_context.getUniformLocation(webgl_shader_program, "uSampler");
 			webgl_shader_program.pMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uPMatrix");
-			webgl_shader_program.mvRotTMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uMVRotTMatrix");
 			webgl_shader_program.mvMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uMVMatrix");
 			webgl_shader_program.nMatrixUniform = webgl_context.getUniformLocation(webgl_shader_program, "uNMatrix");
 
@@ -845,11 +752,15 @@ $(document).ready(function() {
 		log_draw_count=0;
 		log_traverse_count=0;
 
-		var mvMatrix = mat4.create();
-		var mvRotTMatrix = mat4.create();
-		var pMatrix = mat4.create();
+		function perspective_matrix(fov, aspect, near, far) {
+			var t = near*Math.tan(fov*Math.PI/360);
+			var r = t*aspect;
+			return Matrix.frustum([[-r,r],[-t,t],[near,far]]);
+		}
 		//mat4.perspective(60, webgl_context.viewportWidth / webgl_context.viewportHeight, 0.1, 100.0, pMatrix);
-		mat4.perspective(60, canvas_element.width / canvas_element.height, 1, 10000.0, pMatrix);
+		//mat4.perspective(60, canvas_element.width / canvas_element.height, 1, 10000.0, pMatrix);
+		//var pMatrix = perspective_matrix(60, canvas_element.width / canvas_element.height, 1, 10000);
+		var pMatrix = perspective_matrix(60, canvas_element.width / canvas_element.height, 0.01, 100);
 
 		/*mat4.multiply(
 		[	1,0,0,0.5,
@@ -858,25 +769,13 @@ $(document).ready(function() {
 			0,0,0,0.95
 		],pMatrix,pMatrix);*/
 
-		mat4.identity(mvRotTMatrix);
-		mat4.rotate(mvRotTMatrix, Math.PI/2-player.direction_angle, [0,0,1]);
-		mat4.rotate(mvRotTMatrix, -Math.PI/2, [1,0,0]);
-		mat4.rotate(mvRotTMatrix, pitch_angle, [1,0,0]);
-		mat4.rotate(mvRotTMatrix, roll_angle, [0,0,1]);
+		var mvMatrix = Matrix.identity(4);
+		mvMatrix = mvMatrix.scale([1/100,1/100,1/100]);
+		mvMatrix = mvMatrix.rotate(roll_angle, [Vector.create([1,0,0]),Vector.create([0,1,0])]);
+		mvMatrix = mvMatrix.rotate(pitch_angle-Math.PI/2, [Vector.create([0,1,0]),Vector.create([0,0,1])]);
+		mvMatrix = mvMatrix.rotate(Math.PI/2-player.direction_angle, [Vector.create([1,0,0]),Vector.create([0,1,0])]);
+		mvMatrix = mvMatrix.translate(player.viewpoint.scale(-1));
 
-		mat4.identity(mvMatrix);
-
-		//mat4.scale(mvMatrix,[1/100,1/100,1/100]);
-
-		mat4.rotate(mvMatrix, roll_angle, [0,0,1]);
-		mat4.rotate(mvMatrix, pitch_angle, [1,0,0]);
-		mat4.rotate(mvMatrix, -Math.PI/2, [1,0,0]);
-		mat4.rotate(mvMatrix, Math.PI/2-player.direction_angle, [0,0,1]);
-		//mat4.translate(mvMatrix, [-player.viewpoint.coord[0], -player.viewpoint.coord[1], -player.elevation]);
-		mat4.translate(mvMatrix, player.viewpoint.scale(-1).coord);
-
-		//mat4.identity(mvMatrix);
-//pMatrix=[-0.017107263207435608, 1.6590503052034653e-19, 0.0015674764290452003, 0.0015643446240574121, -0.002709524240344763, -1.0474832115039693e-18, -0.009896657429635525, -0.009876883588731289, 0, 0.017320508137345314, -6.13529011016107e-19, -6.123031810470917e-19, 10.528736114501953, -0.5822814106941223, 1.9998770952224731, 2.195681571960449];
 // Clear the automap.
 // Clear the canvas.
 		if(use_webgl && webgl_context) {
@@ -887,17 +786,13 @@ $(document).ready(function() {
 
 
 			function setMatrixUniforms(p,mv,mvrot) {
-				var n = mat3.create();
-
-				mat4.toInverseMat3(mv, n);
-				mat3.transpose(n);
+				var n = mv.qr()['Q'].slice(0,0,3,3);
 
 				webgl_context.uniform1i(webgl_shader_program.use_lighting_uniform, use_lighting);
 				webgl_context.uniform1i(webgl_shader_program.useTexturingUniform, use_texturing);
-				webgl_context.uniformMatrix4fv(webgl_shader_program.pMatrixUniform, false, p);
-				webgl_context.uniformMatrix4fv(webgl_shader_program.mvMatrixUniform, false, mv);
-				webgl_context.uniformMatrix4fv(webgl_shader_program.mvRotTMatrixUniform, false, mvrot);
-				webgl_context.uniformMatrix3fv(webgl_shader_program.nMatrixUniform, false, n);
+				webgl_context.uniformMatrix4fv(webgl_shader_program.pMatrixUniform, false, p.transpose().data);
+				webgl_context.uniformMatrix4fv(webgl_shader_program.mvMatrixUniform, false, mv.transpose().data);
+				webgl_context.uniformMatrix3fv(webgl_shader_program.nMatrixUniform, false, n.transpose().data);
 			}
 
 			webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_vertex_buffer);
@@ -927,7 +822,7 @@ $(document).ready(function() {
 			webgl_context.bindTexture(webgl_context.TEXTURE_2D, texture_atlas);
 			webgl_context.uniform1i(webgl_shader_program.samplerUniform, 0);
 
-			setMatrixUniforms(pMatrix,mvMatrix,mvRotTMatrix);
+			setMatrixUniforms(pMatrix,mvMatrix);
 		}
 		if(use_canvas && canvas_context){
 			canvas_context.clearRect(0,0,canvas.width,canvas.height);
@@ -1016,18 +911,24 @@ $(document).ready(function() {
 				webgl_context.bindBuffer(webgl_context.ELEMENT_ARRAY_BUFFER, webgl_index_buffer);
 				flattened_indexes = [].concat.apply([],indexes);
 
-				webgl_context.bufferData(webgl_context.ELEMENT_ARRAY_BUFFER,new Uint16Array(flattened_indexes),webgl_context.STATIC_DRAW);
+				webgl_context.bufferData(
+					webgl_context.ELEMENT_ARRAY_BUFFER,
+					new Uint16Array(flattened_indexes),webgl_context.STATIC_DRAW);
 				webgl_index_buffer.item_count = flattened_indexes.length;
 				if(use_wireframe) {
-					webgl_context.drawElements(webgl_context.LINES, webgl_index_buffer.item_count, webgl_context.UNSIGNED_SHORT, 0);
+					webgl_context.drawElements(
+						webgl_context.LINES, webgl_index_buffer.item_count,
+						webgl_context.UNSIGNED_SHORT, 0);
 				} else {
-					webgl_context.drawElements(webgl_context.TRIANGLES, webgl_index_buffer.item_count, webgl_context.UNSIGNED_SHORT, 0);
+					webgl_context.drawElements(
+					webgl_context.TRIANGLES,
+					webgl_index_buffer.item_count, webgl_context.UNSIGNED_SHORT, 0);
 				}
 			}
 			if(use_canvas && canvas_context) {
-				var mat = mat4.create();
-				mat4.multiply(pMatrix,mvMatrix,mat);
-//mat=[-0.017107263207435608, 1.6590503052034653e-19, 0.0015674764290452003, 0.0015643446240574121, -0.002709524240344763, -1.0474832115039693e-18, -0.009896657429635525, -0.009876883588731289, 0, 0.017320508137345314, -6.13529011016107e-19, -6.123031810470917e-19, 10.528736114501953, -0.5822814106941223, 1.9998770952224731, 2.195681571960449];
+				//var mat = mat4.create();
+				//mat4.multiply(pMatrix,mvMatrix,mat);
+				var mat = pMatrix.multiply(mvMatrix);
 
 				var cx = canvas_element.width/2;
 				var cy = canvas_element.height/2;
@@ -1051,7 +952,9 @@ $(document).ready(function() {
 					// The equation of a 2D plane in projective space is n.x-w*d=0 = [n,-d].[x,w]
 					// [n,-d].([l1*t,w1]+[l0*(1-t),w0]) = 0
 					// Adding two vectors in projective space is given by [x0,w0] + [x1,w1] = [x0*w1+x1*w0,w0*w1]
-					var n = normal.concat([-dist]);
+					//var n = normal.concat([-dist]);
+					var n = normal.copy();
+					n.set_at(3,-dist);
 					var direction = start.subtract(end);
 					var denominator = n.dot(direction);
 					if(denominator != 0) {
@@ -1087,9 +990,8 @@ $(document).ready(function() {
 					})
 					return clip_polygon_cascade(vertices,planes);
 				}
-				function draw_triangle(vertices,color) {
+				function draw_polygon(vertices,color) {
 					//var projected = vertices.map(project_vertex);
-					var n0 = Array(3);
 
 					// v[n] = p[n] - p[n-1]
 					// N[n] = v[n] x v[n+1]
@@ -1103,10 +1005,8 @@ $(document).ready(function() {
 // Backface culling.
 					/*if(vec3.dot(n0,v1) > 0)*/ {
 						var projected = vertices.map(function (v) { 
-							var p = v.concat([1]);
-
-							mat4.multiplyVec4(mat,p);
-							return p;
+							//var p = Vector.create(v.coord.concat([1]));
+							return mat.multiply_vector(v.copy().set_at(3,1));
 						});
 						/*if(projected.map(function (v) { 
 							return v.slice(0,3).every(function(x) {
@@ -1114,13 +1014,6 @@ $(document).ready(function() {
 							}) ? 1 : 0;
 						}).reduce(function (acc,x) { return acc+x; },0) >=1)*/ {
 							projected = clip_polygon(projected);
-							projected.forEach(function (v) {
-								if(!v.slice(0,3).every(function (x) {
-									return Math.abs(x) <= 1;
-								})) {
-									//console.log(v);
-								}
-							});
 
 					//console.log('(r,g,b) : ' + color[0] + ',' + color[1] + ',' + color[2]);
 							if(projected.length<3) {
@@ -1132,7 +1025,7 @@ $(document).ready(function() {
 
 
 							for(var j=0;j<projected.length;j++) {
-								var pos = to_screen(projected[j]);
+								var pos = to_screen(projected[j].coord);
 								if(j==0) {
 									canvas_context.moveTo(pos[0],pos[1]);
 								} else {
@@ -1156,11 +1049,12 @@ $(document).ready(function() {
 					//var vertices = indexes.slice(triangle_index,triangle_index+3).
 					var vertices = triangle_index.map(
 					function (index) {
-						return webgl_vertices[index]; 
+						return Vector.create(webgl_vertices[index]); 
 					});
-					var color = webgl_normals[triangle_index[0]].map(function (x) { return (x+1)/2; });
+					//var color = webgl_normals[triangle_index[0]].map(function (x) { return (x+1)/2; });
+					var color = webgl_colors[triangle_index[0]];
 
-					draw_triangle(vertices,color);
+					draw_polygon(vertices,color);
 				}
 				indexes.forEach(from_indexes);
 			}
@@ -1300,18 +1194,21 @@ $(document).ready(function() {
 		}*/
 
 		function init_texture() {
-			texture_atlas = webgl_context.createTexture();
-			texture_atlas.image = new Image();
-			texture_atlas.image.onload = function() {
-				handle_loaded_texture(texture_atlas)
-				webgl_context.uniform2fv(webgl_shader_program.texture_size_uniform, 
-					[texture_atlas.image.width,texture_atlas.image.height]);
-				redraw2();
-			}
+			if(webgl_context) {
+				var texture_atlas = webgl_context.createTexture();
+				texture_atlas.image = new Image();
+				texture_atlas.image.onload = function() {
+					handle_loaded_texture(texture_atlas)
+					webgl_context.uniform2fv(webgl_shader_program.texture_size_uniform, 
+						[texture_atlas.image.width,texture_atlas.image.height]);
+					redraw2();
+				}
 
-			texture_atlas.image.src = "data/quake/texture.png";
+				texture_atlas.image.src = "data/quake/texture.png";
+				return texture_atlas
+			}
 		}
-		init_texture();
+		texture_atlas = init_texture();
 
 		level['leaves'].forEach(function (leaf_definition) {
 			if(leaf_definition.object) {
