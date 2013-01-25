@@ -291,9 +291,9 @@ function Plane(definition) {
 	this.normal = Vector.create(definition['normal']);
 	this.displacement = definition['dist'];
 
-	/*var normal_length = this.normal.norm();
+	var normal_length = this.normal.norm();
 	this.normal = this.normal.scale(1/normal_length);
-	this.displacement /= normal_length;*/
+	this.displacement /= normal_length;
 }
 Plane.prototype.normal_equation = function (point) {
 	return this.normal.dot(point)-this.displacement;
@@ -302,10 +302,10 @@ Plane.prototype.normal_equation = function (point) {
 Plane.prototype.intersect_line = function (endpoints) {
 	//var n = this.normal.coord.concat([-this.displacement]);
 	var n = this.normal.copy().set_at(3, -this.displacement);
-	var direction = endpoints[0].subtract(endpoints[1]);
+	var direction = endpoints[1].subtract(endpoints[0]);
 	var denominator = direction.dot(n);
 	if(denominator != 0) {
-		t = n.dot(endpoints[0]) / denominator;
+		var t = -n.dot(endpoints[0]) / denominator;
 		var vector = endpoints[0].mix(endpoints[1], t);
 		return {
 			't' : t,
@@ -325,8 +325,6 @@ function Face(definition,level,buffers) {
 	var head = indexes[0];
 	var tail1 = indexes.slice(1,indexes.length-1);
 	var tail2 = indexes.slice(2,indexes.length);
-	var v0 = new Array(3);
-	var v1 = new Array(3);
 
 	this.vertices = indexes.map(function (index) {
 		return Vector.create(level['vertices'][index]);
@@ -350,23 +348,33 @@ function Face(definition,level,buffers) {
 		} while(i < indexes.length && (face_normal.norm() < 1-10));
 		j++;
 	} while(j+2 < indexes.length && face_normal.norm() <1e-10);
-	this.normal = face_normal;
-	
+	//this.normal = face_normal;
+
+	this.normal = this.plane.object.normal;
+	if(!definition['front side']) {
+		this.normal = this.normal.scale(-1);
+	}
+
+	/*if(face_normal.dot(this.normal) < 0) {
+		console.log(face_normal);
+		console.log(this.normal);
+	}*/
 		
-	if(Math.abs(this.normal.dot(this.plane.object.normal)) < (1-1e-5)) {
+	/*if(Math.abs(this.normal.dot(this.plane.object.normal)) < (1-1e-5)) {
 	console.log(this.normal.dot(this.plane.object.normal));
 	console.log(this.normal.coord);
 	console.log(this.plane.object.normal.coord);
 	console.log(this);
-	}
+	}*/
+
 	//this.normal = this.plane.object.normal;
 
-	/*var face_color = Vector.create(
-		this.normal.normalize().coord.map(function (c) { return (c+1)/2; })
-	);*/
 	var face_color = Vector.create(
-		[Math.random(),Math.random(),Math.random()]
+		this.normal.normalize().coord.map(function (c) { return (c+1)/2; })
 	);
+	/*var face_color = Vector.create(
+		[Math.random(),Math.random(),Math.random()]
+	);*/
 	face_color.coord.push(1);
 
 	/* TODO: Use Vector
@@ -786,7 +794,14 @@ $(document).ready(function() {
 
 
 			function setMatrixUniforms(p,mv,mvrot) {
-				var n = mv.qr()['Q'].slice(0,0,3,3);
+				//var n = mv.qr()['Q'].slice(0,0,3,3);
+				//var n = mv.slice(0,0,3,3).qr()['Q'].transpose();
+				var n = mv.slice(0,0,3,3).inverse().transpose();
+
+				// n'*v = (N*n)'*(M*v)
+				// n'*N'*M*v = n'*v
+				// n'*(Q[N]*R[N])'*(Q[M]*R[M])*v = n'*v
+				// n'*R[N]'*Q[N]'*Q[M]*R[M]*v = n'*v
 
 				webgl_context.uniform1i(webgl_shader_program.use_lighting_uniform, use_lighting);
 				webgl_context.uniform1i(webgl_shader_program.useTexturingUniform, use_texturing);
@@ -945,38 +960,12 @@ $(document).ready(function() {
 					//return [(1+projected[2])*cx,(1-projected[1])*cy];
 				}
 
-				// Return the real number d such that the intersection is start*(d-1)+end*d
-				function line_plane_intersect_parameter(start,end,normal,dist) {
-					// v = ((p0-l0) . n / (l . n))*l + l0
-					// v = (((p0.n) - l0.n) / (l . n))*l + l0
-					// The equation of a 2D plane in projective space is n.x-w*d=0 = [n,-d].[x,w]
-					// [n,-d].([l1*t,w1]+[l0*(1-t),w0]) = 0
-					// Adding two vectors in projective space is given by [x0,w0] + [x1,w1] = [x0*w1+x1*w0,w0*w1]
-					//var n = normal.concat([-dist]);
-					var n = normal.copy();
-					n.set_at(3,-dist);
-					var direction = start.subtract(end);
-					var denominator = n.dot(direction);
-					if(denominator != 0) {
-						t = n.dot(start) / denominator;
-						var vector = new Array(4);
-						for(var i=0;i<4;i++) {
-							vector[i] = start[i] * (1-t) + end[i]*(t);
-						}
-						return {
-							't' : t,
-							'vector' : vector
-						};
-					} else {
-						return null;
-					}
-				}
-				// Clip the polygon in side [-1,1]^3
+				// Clip the polygon inside [-1,1]^3
 				function clip_polygon(vertices) {
 					var planes = [];
 					var w = 1;
 					[-1,1].forEach(function(bound) {
-						[2].forEach(function (dimension)  {
+						[0,1,2].forEach(function (dimension)  {
 							var normal = new Array(3);
 							var dist = -w;
 							for(var i=0;i<3;i++) {

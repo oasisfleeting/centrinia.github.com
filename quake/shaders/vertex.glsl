@@ -26,7 +26,7 @@ void main(void) {
 	gl_Position = uPMatrix * view_position;
 
 	vColor = aVertexColor;
-	vTransformedNormal = uNMatrix * aVertexNormal;
+	vTransformedNormal = normalize(uNMatrix * aVertexNormal);
 	//vTransformedNormal = normalize(uNMatrix * (aVertexColor.xyz*2.0-1.0));
 	//vTransformedNormal = normalize(uMVMatrix*vec4(aVertexNormal,0)).xyz;
 	vTextureRange = aVertexTextureRange;

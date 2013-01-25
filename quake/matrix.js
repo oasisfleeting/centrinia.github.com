@@ -20,6 +20,22 @@ Matrix.identity = function(dimension) {
 	return c;
 };
 Matrix.prototype.set_at = function(row,column,value) {
+	if(row>=this.rows) {
+		for(var i=this.rows;i<=row;i++) {
+			for(var j=0;j<this.columns;j++) {
+				this.data[i*this.columns+j] = 0;
+			}
+		}
+		this.rows = row+1;
+	}
+	if(column>=this.columns) {
+		for(var i=this.columns;i<=column;i++) {
+			for(var j=0;j<this.rows;j++) {
+				this.data[j*this.columns+i] = 0;
+			}
+		}
+		this.columns = column+1;
+	}
 	this.data[row*this.columns+column] = value;
 	return this;
 }
@@ -189,6 +205,36 @@ Matrix.prototype.multiply_vector = function(b) {
 	}
 	return c;
 }
+Matrix.prototype.back_substitution = function (b) {
+	var c = b.copy();
+	for(var i=this.rows-1;i>=0;i--) {
+		var t = c.coord[i];
+		for(var j=i+1;j<this.columns;j++) {
+			t -= this.data[i*this.columns+j] * c.coord[j];
+		}
+		c.coord[i] = t/this.data[i*(this.columns+1)];
+	}
+	return c;
+}
+Matrix.prototype.inverse = function() {
+	var qr = this.qr();
+	var r = qr['R'];
+	var r_inverse = new Matrix(this.rows,this.columns);
+	for(var i=0;i<this.columns;i++) {
+		/*var b = new Vector(this.rows);
+		for(var j=0;j<this.rows;j++) {
+			b.coord[j] = r.data[j*this.columns+i];
+		}*/
+		var b = Vector.zero(this.rows);
+		b.coord[i] = 1;
+
+		b = r.back_substitution(b);
+		for(var j=0;j<this.rows;j++) {
+			r_inverse.data[j*this.columns+i] = b.coord[j];
+		}
+	}
+	return r_inverse.multiply(qr['Q'].transpose());
+}
 function Vector(dimension) {
 	this.dimension = dimension;
 	this.coord = new Array(dimension);
@@ -200,10 +246,23 @@ Vector.create = function(coord) {
 	}
 	return result;
 };
+Vector.zero = function(dimension) {
+	var c = new Vector(dimension);
+	for(var i=0;i<dimension;i++) {
+		c.coord[i] = 0;
+	}
+	return c;
+}
 Vector.copy = function(vector) {
 	return Vector.create(this.coord);
 };
 Vector.prototype.set_at = function(index, component) {
+	if(index>=this.dimension) {
+		for(var i=this.dimension;i<index;i++) {
+			this.coord[i] = 0;
+		}
+		this.dimension = index+1;
+	}
 	this.coord[index] = component;
 	return this;
 };

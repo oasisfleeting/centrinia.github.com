@@ -9,7 +9,6 @@ uniform vec2 texture_size;
 uniform bool use_lighting;
 uniform bool uUseTexturing;
 uniform mat4 uMVMatrix;
-uniform mat4 uMVRotTMatrix;
 uniform mat4 uPMatrix;
 uniform mat3 uNMatrix;
 varying vec2 vTextureCoord;
@@ -61,8 +60,8 @@ vec2 cubemap(vec3 vector)
 void main(void) {
 	vec3 uAmbientColor = vec3(0.2,0.2,0.2);
 	vec3 uPointLightingColor = vec3(0.7,0.6,0.3)*10.0;
-	//vec3 lantern_color = vec3(0.1,0.2,0.7)*5.0;
-	vec3 lantern_color = vec3(0.1,0.2,0.7)*0.0;
+	vec3 lantern_color = vec3(0.1,0.2,0.7)*5.0;
+	//vec3 lantern_color = vec3(0.1,0.2,0.7)*0.0;
 
 	vec4 texcolor;
 	vec3 lightWeighting = vec3(1,1,1);
@@ -92,7 +91,7 @@ void main(void) {
 
 		if(uUseTexturing) {
 			texcolor = lookup_texture(
-				cubemap((uMVRotTMatrix*vec4(viewvec,1)).xyz),
+				cubemap(uNMatrix*viewvec),
 				vec2(vTextureRange.x - vTextureRange.z/2.0, vTextureRange.y),
 				vec2(-vTextureRange.z/2.0, -vTextureRange.w));
 		} else {
