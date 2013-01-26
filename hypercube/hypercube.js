@@ -242,7 +242,7 @@ $(document).ready(function() {
 
 		select_model(dimension);
 
-		spanners = new Array(dimension*(dimension+1));
+		spanners = new Array(dimension);
 		angles = new Array(spanners.length);
 		angle_speeds = new Array(spanners.length);
 		var speed_scale = 1/50000;
@@ -251,7 +251,7 @@ $(document).ready(function() {
 			for(var j=0;j<dimension*2;j++) {
 				spanners[i].data[j] = Math.random()*2-1;
 			}
-			angles[i] = 0;
+			angles[i] = Math.random()*Math.PI*2;
 			angle_speeds[i] = Math.random()*Math.PI*2*speed_scale;
 		}	
 		ndmv = Matrix.identity(dimension);
@@ -319,7 +319,7 @@ $(document).ready(function() {
 
 		//mat4.perspective(60, webgl_context.viewportWidth / webgl_context.viewportHeight, 0.1, 1000.0, pMatrix);
 		//pMatrix = mat4.perspective(60, webgl_context.viewportWidth / webgl_context.viewportHeight, 0.1, 1000.0);
-		pMatrix = mat4.ortho(-2,2,-2,2,0.1,100);
+		pMatrix = mat4.ortho(-2,2,-2,2,0.1,20);
 
 		mat4.identity(mvMatrix);
 		mat4.translate(mvMatrix, [0,0,-5]);

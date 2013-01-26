@@ -16,7 +16,7 @@ varying vec3 vLightWeighting;
 void main(void) {
     gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
 
-    vec3 transformedNormal = uNMatrix * aVertexNormal;
+    vec3 transformedNormal = normalize(uNMatrix * aVertexNormal);
     float directionalLightWeighting = max(dot(transformedNormal, uLightingDirection), 0.0);
     vLightWeighting = uAmbientColor + uDirectionalColor * directionalLightWeighting;
 }

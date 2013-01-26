@@ -151,7 +151,7 @@ $(document).ready(function() {
 	var lighting_latitude_speed = 29*Math.PI/180;
 
 	function animate() {
-        	var timeNow = new Date().getTime();
+     	var timeNow = new Date().getTime();
 	        if (lastTime != 0) {
 			var elapsed = timeNow - lastTime;
 
@@ -173,8 +173,9 @@ $(document).ready(function() {
 		function setMatrixUniforms(p,mv) {
 			webgl_context.uniformMatrix4fv(webgl_shader_program.pMatrixUniform, false, p);
 			webgl_context.uniformMatrix4fv(webgl_shader_program.mvMatrixUniform, false, mv);
-	        	var normalMatrix = mat3.create();
-	        	mat4.toInverseMat3(mvMatrix, normalMatrix);
+
+        	var normalMatrix = mat3.create();
+        	mat4.toInverseMat3(mvMatrix, normalMatrix);
 			mat3.transpose(normalMatrix);
 			webgl_context.uniformMatrix3fv(webgl_shader_program.nMatrixUniform, false, normalMatrix);
 
@@ -197,7 +198,14 @@ $(document).ready(function() {
 				1.2,1.5,2.7);
 		}
 
-		mat4.perspective(60, webgl_context.viewportWidth / webgl_context.viewportHeight, 0.1, 100.0, pMatrix);
+		mat4.perspective(60, webgl_context.viewportWidth / webgl_context.viewportHeight, 1, 4.0, pMatrix);
+/*mat4.multiply(
+		[	0,0,0,0,
+			0,1,0,0,
+			1,0,0,0,
+			0,0,0,1
+		],pMatrix,pMatrix);*/
+
 
 		mat4.identity(mvMatrix);
 		mat4.translate(mvMatrix, [-center[0],-center[1],-center[2]-2])
