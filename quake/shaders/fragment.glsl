@@ -11,8 +11,7 @@ uniform bool uUseTexturing;
 uniform mat4 uMVMatrix;
 uniform mat4 uPMatrix;
 uniform mat3 uNMatrix;
-varying vec2 vTextureCoord;
-varying vec4 vColor;
+varying vec4 vTextureCoord;
 varying vec4 vTextureRange;
 varying vec3 vTransformedNormal;
 varying vec4 view_position;
@@ -21,13 +20,8 @@ varying vec4 vertex_position;
 uniform sampler2D uSampler;
 
 vec4 lookup_texture(vec2 uv,vec2 begin, vec2 size) {
-	//vec2 begin = vTextureRange.xy;
-	//vec2 size = vTextureRange.zw;
-	// Coordinates for the inside of a patch. Inside [0,1)^2
-	vec2 patch_coord = fract(uv)*size+begin;
-	vec2 atlas_coord = patch_coord/texture_size;
-	//vec2 patch_coord = fract(vTextureCoord/vTextureRange.zw);
-	//vec2 atlas_coord = (patch_coord*vTextureRange.zw+vTextureRange.xy)/texture_size;
+	vec2 patch_coord = mod(uv,1.0)+begin;
+	vec2 atlas_coord = size*patch_coord/texture_size;
 	vec2 texcoord = vec2(atlas_coord.s,atlas_coord.t);
 	vec4 texcolor = texture2D(uSampler, texcoord);
 	return texcolor;
@@ -63,16 +57,14 @@ void main(void) {
 	vec3 lantern_color = vec3(0.1,0.2,0.7)*5.0;
 	//vec3 lantern_color = vec3(0.1,0.2,0.7)*0.0;
 
-	vec4 texcolor;
+	vec4 texcolor = vec4(vTransformedNormal,1.0);
 	vec3 lightWeighting = vec3(1,1,1);
 	if(vTextureRange.z > 0.0) 
 	{
 		if(uUseTexturing) {
-			texcolor = lookup_texture(vTextureCoord,
+			texcolor = lookup_texture(vTextureCoord.st,
 				vTextureRange.xy,vTextureRange.zw
 			);
-		} else {
-			texcolor = vColor;
 		}
 
 		if(use_lighting) {
@@ -87,17 +79,19 @@ void main(void) {
 				lantern_color * inverse_square;
 		}
 	} else {
-		vec3 viewvec = (uMVMatrix*vec4(vertex_position.xyz,1)).xyz;
-
+		//vec3 viewvec = (uMVMatrix*vec4(vertex_position.xyz,1)).xyz;
+		vec3 viewvec = normalize(uNMatrix*vertex_position.xyz);
+		vec2 size = vec2(-vTextureRange.z/2.0, -vTextureRange.w);
+		vec2 begin = vec2(vTextureRange.x+1.0, vTextureRange.y);
 		if(uUseTexturing) {
 			texcolor = lookup_texture(
 				cubemap(uNMatrix*viewvec),
-				vec2(vTextureRange.x - vTextureRange.z/2.0, vTextureRange.y),
-				vec2(-vTextureRange.z/2.0, -vTextureRange.w));
-		} else {
-			texcolor = vColor;
+				begin,size);
 		}
 		lightWeighting = vec3(1,1,1);
 	}
 	gl_FragColor = vec4(texcolor.rgb*lightWeighting,texcolor.a);
+	//gl_FragColor = vec4((vTransformedNormal+1.0)/2.0,1.0);
+	//gl_FragColor = vec4(mod(vTextureCoord.st,1.0),0.0,1.0);
+	//gl_FragColor = vec4(vTextureCoord.st,0.0,1.0);
 }

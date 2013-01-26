@@ -573,8 +573,8 @@ let {
 ];
 
 -- Placement {placement_begin = (320,0), placement_size = (320,192), placement_item = [("pak0/maps/e1m7.bsp",4)]}
-marshall_texture_index_json :: [Placement [(String,Miptex)]] -> JS.JSValue;
-marshall_texture_index_json ps =
+marshall_texture_index_json :: Integer -> [Placement [(String,Miptex)]] -> JS.JSValue;
+marshall_texture_index_json padding ps =
 let {
 	filenames =
 		Data.List.union []
@@ -588,10 +588,11 @@ let {
 		JS.toJSObject [
 			("index",JS.showJSON $ miptex_index miptex),
 			("texture name",JS.showJSON $ miptex_name miptex),
-			("begin",JS.showJSON $ placement_begin p),
-			("size",JS.showJSON $ placement_size p)
+			("begin",JS.showJSON $ f padding $ placement_begin p),
+			("size",JS.showJSON $ f (-padding*2) $ placement_size p)
 		])
 	| p <- ps, (fn,miptex) <- placement_item p, fn == filename];
+	f x (a,b) = (a+x,b+x);
 } in JS.showJSON $ JS.toJSObject $ [
 (filename, gather_textures filename)
 | filename <- filenames
@@ -669,7 +670,7 @@ let {
 		subpath = truncate_filepath path;
 		fn = FP.takeFileName subpath `FP.replaceExtension` "json" ;
 	} in FP.replaceFileName (outpath </> subpath) fn;
-	padding = 0;
+	padding = 4;
 } in do {
 
 -- Extract the maps.
@@ -733,7 +734,7 @@ let {
 		--mapM print positions;
 		--mapM print filepath_suffixes;
 		--print filepath_prefix;
-		writeFile (outpath </> "texture_index.json") $ JS.encode $ marshall_texture_index_json positions;
+		writeFile (outpath </> "texture_index.json") $ JS.encode $ marshall_texture_index_json padding positions;
 	};
 
 	exitSuccess;
@@ -751,8 +752,8 @@ do_packing :: Integer -> (Integer,Integer) -> [PixelRGBA8] -> [(a,Image Pixel8)]
 do_packing padding (width,height) palette textures = let {
 	tree_element (a,img) =
 	let {
-		w = fromIntegral $ imageWidth img;
-		h = fromIntegral $ imageHeight img;
+		w = (fromIntegral $ imageWidth img)+padding*2;
+		h = (fromIntegral $ imageHeight img)+padding*2;
 	} in ((a,img),(w,h));
 	lookup_palette = pixelMap (\a -> palette !! fromIntegral a);
 	tree =
@@ -766,11 +767,12 @@ inside_box (x,y) (w,h) padding = all (\(t,l) -> padding<=t && t<l-padding) [(x,w
 
 get_pixel x y =
 query_tree (\(x',y') (_,img) -> 
-if inside_box (x',y') (fromIntegral $ imageWidth img,fromIntegral $ imageHeight img) padding
-	{-padding<=x' && x'<w-padding &&
-	padding<=y' && y'<h-padding-}
+		pixelAt img 
+		((fromIntegral $ x'-padding) `mod` imageWidth img) 
+		((fromIntegral $ y'-padding) `mod` imageHeight img) 
+{-if inside_box (x',y') (fromIntegral $ imageWidth img,fromIntegral $ imageHeight img) padding
 		then pixelAt img (fromIntegral $ x'-padding) (fromIntegral $ y'-padding)
-		else base_color
+		else base_color-}
 )
 base_color tree (fromIntegral x,fromIntegral y);
 

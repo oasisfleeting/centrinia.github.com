@@ -404,11 +404,13 @@ function Face(definition,level,buffers) {
 			var vertex = Vector.create(level['vertices'][index]);
 			buffers['vertex'].push(vertex.coord);
 			buffers['color'].push(face_color.coord);
-			//buffers['normal'].push(this.plane.object.normal.coord);
 			buffers['normal'].push(this.normal.coord);
 
 			// [x,y,w,h]
 			var texrange = atlas_entry['begin'].concat(atlas_entry['size']);
+			texrange[0] /= texrange[2];
+			texrange[1] /= texrange[3];
+
 			if(atlas_entry['texture name'].substr(0,3) == 'sky') {
 				texrange[2] = -texrange[2];
 				texrange[3] = -texrange[3];
@@ -422,10 +424,9 @@ function Face(definition,level,buffers) {
 				var vector = Vector.create(texinfo['vectors'][i]);
 				var dist = texinfo['displacements'][i];
 				//texcoord[i] = Math.mod(compute_texture_coord(vertex,vector,dist),atlas_entry['size'][i]);
-				texcoord[i] = compute_texture_coord(vertex,vector,dist);
+				texcoord[i] = compute_texture_coord(vertex,vector,dist) / atlas_entry['size'][i];
 			}
-			buffers['texture coordinate'].push(texcoord);
-
+			buffers['texture coordinate'].push(texcoord.concat([0,0]));
 			return result;
 		} else {
 			return index;
@@ -641,7 +642,7 @@ $(document).ready(function() {
 	var canvas_name = 'canvas';
 	canvas_element = document.getElementById(canvas_name);
 	canvas_element2 = document.getElementById('canvas2');
-
+	var texture_atlas;
 	if(use_webgl) {
 // Initialize WebGL.//{{{
 		try {
@@ -709,19 +710,19 @@ $(document).ready(function() {
 			webgl_shader_program.vertexPositionAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexPosition");
 			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexPositionAttribute);
 
-			webgl_shader_program.vertexColorAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexColor");
-			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexColorAttribute);
+			//webgl_shader_program.vertexColorAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexColor");
+			//webgl_context.enableVertexAttribArray(webgl_shader_program.vertexColorAttribute);
 
 			webgl_shader_program.vertexNormalAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexNormal");
 			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexNormalAttribute);
 
-			webgl_shader_program.vertexTextureRangeAttribute =
-				webgl_context.getAttribLocation(webgl_shader_program, "aVertexTextureRange");
-			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexTextureRangeAttribute);
-
 			webgl_shader_program.vertexTextureCoordinateAttribute =
 				webgl_context.getAttribLocation(webgl_shader_program, "aVertexTextureCoordinate");
 			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexTextrueCoordinateAttribute);
+
+			webgl_shader_program.vertexTextureRangeAttribute =
+				webgl_context.getAttribLocation(webgl_shader_program, "aVertexTextureRange");
+			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexTextureRangeAttribute);
 
 			webgl_shader_program.use_lighting_uniform = webgl_context.getUniformLocation(webgl_shader_program, "use_lighting");
 			webgl_shader_program.useTexturingUniform = webgl_context.getUniformLocation(webgl_shader_program, "uUseTexturing");
@@ -760,87 +761,91 @@ $(document).ready(function() {
 		log_draw_count=0;
 		log_traverse_count=0;
 
-		function perspective_matrix(fov, aspect, near, far) {
-			var t = near*Math.tan(fov*Math.PI/360);
-			var r = t*aspect;
+		function setup_scene() {
+			function perspective_matrix(fov, aspect, near, far) {
+				var t = near*Math.tan(fov*Math.PI/360);
+				var r = t*aspect;
 			return Matrix.frustum([[-r,r],[-t,t],[near,far]]);
-		}
-		//mat4.perspective(60, webgl_context.viewportWidth / webgl_context.viewportHeight, 0.1, 100.0, pMatrix);
-		//mat4.perspective(60, canvas_element.width / canvas_element.height, 1, 10000.0, pMatrix);
-		//var pMatrix = perspective_matrix(60, canvas_element.width / canvas_element.height, 1, 10000);
-		var pMatrix = perspective_matrix(60, canvas_element.width / canvas_element.height, 0.01, 100);
+			}
+			//mat4.perspective(60, webgl_context.viewportWidth / webgl_context.viewportHeight, 0.1, 100.0, pMatrix);
+			//mat4.perspective(60, canvas_element.width / canvas_element.height, 1, 10000.0, pMatrix);
+			//var pMatrix = perspective_matrix(60, canvas_element.width / canvas_element.height, 1, 10000);
+			var pMatrix = perspective_matrix(60, canvas_element.width / canvas_element.height, 0.01, 100);
 
-		/*mat4.multiply(
-		[	1,0,0,0.5,
-			0,1,0,-0.5,
-			0,0,1,1,
-			0,0,0,0.95
-		],pMatrix,pMatrix);*/
+			/*mat4.multiply(
+			[	1,0,0,0.5,
+				0,1,0,-0.5,
+				0,0,1,1,
+				0,0,0,0.95
+			],pMatrix,pMatrix);*/
 
-		var mvMatrix = Matrix.identity(4);
-		mvMatrix = mvMatrix.scale([1/100,1/100,1/100]);
-		mvMatrix = mvMatrix.rotate(roll_angle, [Vector.create([1,0,0]),Vector.create([0,1,0])]);
-		mvMatrix = mvMatrix.rotate(pitch_angle-Math.PI/2, [Vector.create([0,1,0]),Vector.create([0,0,1])]);
-		mvMatrix = mvMatrix.rotate(Math.PI/2-player.direction_angle, [Vector.create([1,0,0]),Vector.create([0,1,0])]);
-		mvMatrix = mvMatrix.translate(player.viewpoint.scale(-1));
+			var mvMatrix = Matrix.identity(4);
+			mvMatrix = mvMatrix.scale([1/100,1/100,1/100]);
+			mvMatrix = mvMatrix.rotate(roll_angle, [Vector.create([1,0,0]),Vector.create([0,1,0])]);
+			mvMatrix = mvMatrix.rotate(pitch_angle-Math.PI/2, [Vector.create([0,1,0]),Vector.create([0,0,1])]);
+			mvMatrix = mvMatrix.rotate(Math.PI/2-player.direction_angle, [Vector.create([1,0,0]),Vector.create([0,1,0])]);
+			mvMatrix = mvMatrix.translate(player.viewpoint.scale(-1));
 
 // Clear the automap.
 // Clear the canvas.
-		if(use_webgl && webgl_context) {
-			webgl_context.viewport(0, 0, webgl_context.viewportWidth, webgl_context.viewportHeight);
-			webgl_context.clearColor(0.5, 0.5, 0.5, 1.0);
-			webgl_context.clear(webgl_context.COLOR_BUFFER_BIT | webgl_context.DEPTH_BUFFER_BIT);
+			if(use_webgl && webgl_context) {
+				webgl_context.viewport(0, 0, webgl_context.viewportWidth, webgl_context.viewportHeight);
+				webgl_context.clearColor(0.5, 0.5, 0.5, 1.0);
+				webgl_context.clear(webgl_context.COLOR_BUFFER_BIT | webgl_context.DEPTH_BUFFER_BIT);
 
 
 
-			function setMatrixUniforms(p,mv,mvrot) {
-				//var n = mv.qr()['Q'].slice(0,0,3,3);
-				//var n = mv.slice(0,0,3,3).qr()['Q'].transpose();
-				var n = mv.slice(0,0,3,3).inverse().transpose();
+				function setMatrixUniforms(p,mv,mvrot) {
+					//var n = mv.qr()['Q'].slice(0,0,3,3);
+					//var n = mv.slice(0,0,3,3).qr()['Q'].transpose();
+					var n = mv.slice(0,0,3,3).inverse().transpose();
 
-				// n'*v = (N*n)'*(M*v)
-				// n'*N'*M*v = n'*v
-				// n'*(Q[N]*R[N])'*(Q[M]*R[M])*v = n'*v
-				// n'*R[N]'*Q[N]'*Q[M]*R[M]*v = n'*v
+					// n'*v = (N*n)'*(M*v)
+					// n'*N'*M*v = n'*v
+					// n'*(Q[N]*R[N])'*(Q[M]*R[M])*v = n'*v
+					// n'*R[N]'*Q[N]'*Q[M]*R[M]*v = n'*v
 
-				webgl_context.uniform1i(webgl_shader_program.use_lighting_uniform, use_lighting);
-				webgl_context.uniform1i(webgl_shader_program.useTexturingUniform, use_texturing);
-				webgl_context.uniformMatrix4fv(webgl_shader_program.pMatrixUniform, false, p.transpose().data);
-				webgl_context.uniformMatrix4fv(webgl_shader_program.mvMatrixUniform, false, mv.transpose().data);
-				webgl_context.uniformMatrix3fv(webgl_shader_program.nMatrixUniform, false, n.transpose().data);
-			}
+					webgl_context.uniform1i(webgl_shader_program.use_lighting_uniform, use_lighting);
+					webgl_context.uniform1i(webgl_shader_program.useTexturingUniform, use_texturing);
+					webgl_context.uniformMatrix4fv(webgl_shader_program.pMatrixUniform, false, p.transpose().data);
+					webgl_context.uniformMatrix4fv(webgl_shader_program.mvMatrixUniform, false, mv.transpose().data);
+					webgl_context.uniformMatrix3fv(webgl_shader_program.nMatrixUniform, false, n.transpose().data);
+				}
 
-			webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_vertex_buffer);
-			webgl_context.vertexAttribPointer(webgl_shader_program.vertexPositionAttribute,
+				webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_vertex_buffer);
+				webgl_context.vertexAttribPointer(webgl_shader_program.vertexPositionAttribute,
 					webgl_vertex_buffer.item_size, webgl_context.FLOAT, false, 0, 0);
 
-			webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_color_buffer);
-			webgl_context.vertexAttribPointer(webgl_shader_program.vertexColorAttribute,
-					webgl_color_buffer.item_size, webgl_context.FLOAT, false, 0, 0);
+				/*webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_color_buffer);
+				webgl_context.vertexAttribPointer(webgl_shader_program.vertexColorAttribute,
+					webgl_color_buffer.item_size, webgl_context.FLOAT, false, 0, 0);*/
 
-			webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_normal_buffer);
-			webgl_context.vertexAttribPointer(webgl_shader_program.vertexNormalAttribute,
+				webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_normal_buffer);
+				webgl_context.vertexAttribPointer(webgl_shader_program.vertexNormalAttribute,
 					webgl_normal_buffer.item_size, webgl_context.FLOAT, false, 0, 0);
 
-			// The texture range.
-			webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_texture_range_buffer);
-			webgl_context.vertexAttribPointer(webgl_shader_program.vertexTextureRangeAttribute,
+				// The texture range.
+				webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_texture_range_buffer);
+				webgl_context.vertexAttribPointer(webgl_shader_program.vertexTextureRangeAttribute,
 					webgl_texture_range_buffer.item_size, webgl_context.FLOAT, false, 0, 0);
 
-			// The texture coordinates.
-			webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_texture_coordinate_buffer);
-			webgl_context.vertexAttribPointer(webgl_shader_program.vertexTextureCoordinateAttribute,
+				// The texture coordinates.
+				webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_texture_coordinate_buffer);
+				webgl_context.vertexAttribPointer(webgl_shader_program.vertexTextureCoordinateAttribute,
 					webgl_texture_coordinate_buffer.item_size, webgl_context.FLOAT, false, 0, 0);
 
-			// The sampler.
-			webgl_context.activeTexture(webgl_context.TEXTURE0);
-			webgl_context.bindTexture(webgl_context.TEXTURE_2D, texture_atlas);
-			webgl_context.uniform1i(webgl_shader_program.samplerUniform, 0);
+				// The sampler.
+				webgl_context.activeTexture(webgl_context.TEXTURE0);
+				while(!texture_atlas);
+				webgl_context.bindTexture(webgl_context.TEXTURE_2D, texture_atlas);
+				webgl_context.uniform1i(webgl_shader_program.samplerUniform, 0);
 
-			setMatrixUniforms(pMatrix,mvMatrix);
-		}
-		if(use_canvas && canvas_context){
-			canvas_context.clearRect(0,0,canvas.width,canvas.height);
+
+				webgl_context.uniform2fv(webgl_shader_program.texture_size_uniform, 
+					[texture_atlas.image.width,texture_atlas.image.height]);
+
+				setMatrixUniforms(pMatrix,mvMatrix);
+			}
 		}
 
 		var leaf = bsp.find_leaf(player.viewpoint);
@@ -922,7 +927,9 @@ $(document).ready(function() {
 			//indexes=[[29487, 29488, 29490, 29491]];
 			//console.log('indexes length: ' + indexes.length);
 
+			setup_scene();
 			if(use_webgl && webgl_context) {
+
 				webgl_context.bindBuffer(webgl_context.ELEMENT_ARRAY_BUFFER, webgl_index_buffer);
 				flattened_indexes = [].concat.apply([],indexes);
 
@@ -1044,6 +1051,10 @@ $(document).ready(function() {
 					var color = webgl_colors[triangle_index[0]];
 
 					draw_polygon(vertices,color);
+				}
+
+				if(use_canvas && canvas_context){
+					canvas_context.clearRect(0,0,canvas.width,canvas.height);
 				}
 				indexes.forEach(from_indexes);
 			}
@@ -1173,9 +1184,9 @@ $(document).ready(function() {
 				webgl_context.TEXTURE_2D, 0, 
 				webgl_context.RGBA, webgl_context.RGBA, webgl_context.UNSIGNED_BYTE, texture.image);
 			webgl_context.texParameteri(
-				webgl_context.TEXTURE_2D, webgl_context.TEXTURE_MAG_FILTER, webgl_context.NEAREST);
+				webgl_context.TEXTURE_2D, webgl_context.TEXTURE_MAG_FILTER, webgl_context.LINEAR);
 			webgl_context.texParameteri(
-				webgl_context.TEXTURE_2D, webgl_context.TEXTURE_MIN_FILTER, webgl_context.NEAREST);
+				webgl_context.TEXTURE_2D, webgl_context.TEXTURE_MIN_FILTER, webgl_context.LINEAR);
 			webgl_context.bindTexture(webgl_context.TEXTURE_2D, null);
 		}
 		/*function handle_loaded_cubemap(texture) {
@@ -1188,9 +1199,6 @@ $(document).ready(function() {
 				texture_atlas.image = new Image();
 				texture_atlas.image.onload = function() {
 					handle_loaded_texture(texture_atlas)
-					webgl_context.uniform2fv(webgl_shader_program.texture_size_uniform, 
-						[texture_atlas.image.width,texture_atlas.image.height]);
-					redraw2();
 				}
 
 				texture_atlas.image.src = "data/quake/texture.png";
