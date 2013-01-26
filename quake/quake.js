@@ -476,6 +476,9 @@ Face.prototype.intersects_segment = function (start,end) {
 	if(!intersection) {
 		return false;
 	}
+	if(intersection['t'] < 0 || intersection['t'] > 1) {
+		return false;
+	}
 	return this.inside_face(intersection['vector']);
 }
 Face.prototype.intersects_sphere = function (center,radius) {
@@ -1336,7 +1339,7 @@ $(document).ready(function() {
 			return true;
 		}
 		var leaf = bsp.find_leaf(viewpoint);
-		var radius = 8;
+		var radius = 20;
 		if(!leaf.faces.every(function (face) {
 			return !face.object.intersects_sphere(viewpoint,radius);
 		})) {
