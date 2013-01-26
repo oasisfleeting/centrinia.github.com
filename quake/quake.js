@@ -426,7 +426,7 @@ function Face(definition,level,buffers) {
 				//texcoord[i] = Math.mod(compute_texture_coord(vertex,vector,dist),atlas_entry['size'][i]);
 				texcoord[i] = compute_texture_coord(vertex,vector,dist) / atlas_entry['size'][i];
 			}
-			buffers['texture coordinate'].push(texcoord.concat([0,0]));
+			buffers['texture coordinate'].push(texcoord.map(function (x) { return isFinite(x) ? x : 0; }).concat([0,0]));
 			return result;
 		} else {
 			return index;

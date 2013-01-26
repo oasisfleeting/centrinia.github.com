@@ -16,6 +16,11 @@ var use_webgl = false;
 var use_noclip = false;
 var use_blending = false;
 
+var quake_config = {
+	'viewbob frequency' : 1.0/100,
+	'viewbob amplitude' : 2.0
+};
+
 //{{{
 var clone = function() {
 	var result = this instanceof Array ? [] : {};
@@ -235,10 +240,9 @@ function Viewer(elevation,fov,direction,viewpoint,screen_elevations)
 // Move the viewpoint forward.//{{{
 	this.move_forward = function (step, intersection_handler)
 	{
-		var viewbobAmplitude = 2.0;
-		var viewbobFrequency = 1/10;
 		this.stepDistance++;
-		var viewbob = Math.cos(this.stepDistance*2*Math.PI*viewbobFrequency)*viewbobAmplitude;
+		var viewbob = Math.cos(this.stepDistance*2*Math.PI*quake_config['viewbob frequency'])*
+				quake_config['viewbob amplitude'];
 
 		var vector = this.direction_vector.scale(step);
 		this.update(this.fov,this.viewpoint.add(vector),this.direction_vector,this.elevation+viewbob, intersection_handler);
@@ -246,10 +250,9 @@ function Viewer(elevation,fov,direction,viewpoint,screen_elevations)
 // Move the viewpoint to the left.//{{{
 	this.move_left = function (step, intersection_handler)
 	{
-		var viewbobAmplitude = 2.0;
-		var viewbobFrequency = 1/10;
 		this.stepDistance++;
-		var viewbob = Math.cos(this.stepDistance*2*Math.PI*viewbobFrequency)*viewbobAmplitude;
+		var viewbob = Math.cos(this.stepDistance*2*Math.PI*quake_config['viewbob frequency'])*
+				quake_config['viewbob amplitude'];
 
 		var vector = new Vector2([-step*this.direction_vector.coord[1],step*this.direction_vector.coord[0]]);
 		this.update(this.fov,this.viewpoint.add(vector),this.direction_vector,this.elevation+viewbob, intersection_handler);
