@@ -14,7 +14,7 @@ var use_canvas = true;
 var use_webgl = use_canvas;
 //var use_canvas = false;
 //var use_webgl = true;
-var use_noclip = false;
+var use_noclip = true;
 var use_blending = false;
 
 config = {
@@ -72,6 +72,9 @@ config = {
 		}
 	},
 	'key refresh' : 35,
+	'physics' : {
+		'gravity': 6.0e-2
+	},
 	'movement' : {
 		'strafe distance' : 5,
 		'forward distance' : 5,
@@ -80,7 +83,7 @@ config = {
 		'turn angle' : 5 // In degrees.
 	},
 	'viewbob' : {
-		'amplitude' : 3.0,
+		'amplitude' : 0.0,
 		'frequency' : 0.07
 	}
 };
@@ -299,7 +302,7 @@ Plane.prototype.normal_equation = function (point) {
 	return this.normal.dot(point)-this.displacement;
 };
 
-Plane.prototype.intersect_line = function (endpoints) {
+Plane.prototype.intersect_segment = function (endpoints) {
 	//var n = this.normal.coord.concat([-this.displacement]);
 	var n = this.normal.copy().set_at(3, -this.displacement);
 	var direction = endpoints[1].subtract(endpoints[0]);
@@ -315,8 +318,10 @@ Plane.prototype.intersect_line = function (endpoints) {
 		return null;
 	}
 };
-Plane.prototype.closest_point_to = function (start,end) {
-	return null;
+Plane.prototype.closest_to_point = function (point) {
+	var t = this.normal.dot(point) - this.displacement;
+
+	return point.subtract(this.normal.scale(t));
 };
 
 function Face(definition,level,buffers) {
@@ -423,7 +428,6 @@ function Face(definition,level,buffers) {
 			for(var i=0;i<2;i++) {
 				var vector = Vector.create(texinfo['vectors'][i]);
 				var dist = texinfo['displacements'][i];
-				//texcoord[i] = Math.mod(compute_texture_coord(vertex,vector,dist),atlas_entry['size'][i]);
 				texcoord[i] = compute_texture_coord(vertex,vector,dist) / atlas_entry['size'][i];
 			}
 			buffers['texture coordinate'].push(texcoord.map(function (x) { return isFinite(x) ? x : 0; }).concat([0,0]));
@@ -445,17 +449,47 @@ function Face(definition,level,buffers) {
 	this.edges[indexes.length-1] = [this.triangles[this.triangles.length-1][2],head_index];
 
 }
+Face.prototype.inside_face = function (point) {
+	var triangle_clockwise = function (a,b,c) {
+		var normal = c.subtract(a).cross(b.subtract(a));
+		return this.normal.dot(normal) > 0;
+	}
+	var low = 0;
+	var high = this.vertices.length;
+
+	do {
+		var mid = (low+high) >> 1;
+		if(triangle_clockwise.apply(this, [this.vertices[0], this.vertices[mid], point])) {
+			low = mid;
+		} else {
+			high = mid;
+		}
+	} while(low+1 < high);
+	if(low == 0 || high == this.vertices.length) {
+		return false;
+	}
+	return triangle_clockwise.apply(this, [this.vertices[low],this.vertices[high], point]);
+}
+Face.prototype.intersects_segment = function (start,end) {
+	var endpoints = [start.copy().set_at(3,1),end.copy().set_at(3,1)];
+	var intersection = this.plane.object.intersect_segment(endpoints);
+	if(!intersection) {
+		return false;
+	}
+	return this.inside_face(intersection['vector']);
+}
 Face.prototype.intersects_sphere = function (center,radius) {
 	if(Math.abs(this.plane.object.normal_equation(center)) > radius) {
 		return false;
 	}
-	var ray_intersects_sphere = function (start, normal, center,radius) {
-		var m = vector_subtract(start,center);
-		var c = vector_dot(m,m) - radius*radius;
+	var segment_intersects_sphere = function (start,end, center,radius) {
+		var normal = end.subtract(start).normalize();
+		var m = start.subtract(center);
+		var c = m.dot(m) - radius*radius;
 		if(c<=0) {
 			return true;
 		}
-		var b = vector_dot(m, normal);
+		var b = normal.dot(m);
 		if(b > 0) {
 			return false;
 		}
@@ -463,20 +497,23 @@ Face.prototype.intersects_sphere = function (center,radius) {
 		if(discriminant < 0) {
 			return false;
 		}
-		return true;
+		var t = -b-Math.sqrt(discriminant);
+		if(t<0) {
+			t = 0;
+		}
+		return t < end.distance(start);
 	}
 	for(var i=0,j=this.vertices.length-1;i<this.vertices.length;j=i,i++) {
 		var start = this.vertices[j];
-		var normal = vector_normalize(vector_subtract(this.vertices[i],start));
-		
-		if(ray_intersects_sphere(start, normal), center,radius) {
+		var end = this.vertices[i];
+
+		if(segment_intersects_sphere(start, end, center,radius)) {
 			return true;
 		}
 	}
-	var closest_point = this.plane.object.closest_point_to(center);
-	return false;
+	var closest_point = this.plane.object.closest_to_point(center);
+	return this.inside_face(closest_point);
 };
-
 
 function Leaf(leaf_definition,level,parent_node) {
 	this.type = leaf_definition['type'];
@@ -607,7 +644,7 @@ function clip_polygon_cascade(vertices, planes) {
 				});
 
 				if(inside[0] ^ inside[1]) {
-					var intersection = worker['plane'].intersect_line(working);
+					var intersection = worker['plane'].intersect_segment(working);
 					if(!intersection) {
 						//console.log(working);
 						intersection = {'vector':working[1]};
@@ -737,8 +774,8 @@ $(document).ready(function() {
 			var webgl_color_buffer;
 			var webgl_texture_coordinate_buffer;
 			var webgl_texture_range_buffer;
-			//webgl_context.enable(webgl_context.CULL_FACE);
-			//webgl_context.cullFace(webgl_context.FRONT);
+			webgl_context.enable(webgl_context.CULL_FACE);
+			webgl_context.cullFace(webgl_context.FRONT);
 			//webgl_context.cullFace(webgl_context.FRONT_AND_BACK);
 			if(use_blending) {
 				webgl_context.disable(webgl_context.DEPTH_TEST);
@@ -799,11 +836,6 @@ $(document).ready(function() {
 					//var n = mv.qr()['Q'].slice(0,0,3,3);
 					//var n = mv.slice(0,0,3,3).qr()['Q'].transpose();
 					var n = mv.slice(0,0,3,3).inverse().transpose();
-
-					// n'*v = (N*n)'*(M*v)
-					// n'*N'*M*v = n'*v
-					// n'*(Q[N]*R[N])'*(Q[M]*R[M])*v = n'*v
-					// n'*R[N]'*Q[N]'*Q[M]*R[M]*v = n'*v
 
 					webgl_context.uniform1i(webgl_shader_program.use_lighting_uniform, use_lighting);
 					webgl_context.uniform1i(webgl_shader_program.useTexturingUniform, use_texturing);
@@ -1248,12 +1280,18 @@ $(document).ready(function() {
 	pitch_angle = 0;
 	function animate() {
      	var timeNow = new Date().getTime();
-	      if (lastTime != 0) {
+      if (lastTime != 0) {
 			
 			var elapsed = timeNow - lastTime;
 			pitch_angle = Math.sin((Math.sqrt(2)/3)*timeNow/1000.0)*Math.PI*2*(10/360);
 			roll_angle = Math.sin((Math.sqrt(3)/5)*timeNow/1000.0)*Math.PI*2*(6/360);
+
+
+// Gravity
+			if(!use_noclip) {
+				player.move_up(-config['physics']['gravity']*elapsed,test_intersection);
 			}
+		}
 		lastTime = timeNow;
 	}
 
@@ -1277,6 +1315,9 @@ $(document).ready(function() {
 			webgl_context.clear(webgl_context.COLOR_BUFFER_BIT | webgl_context.DEPTH_BUFFER_BIT);
 		}
 	});
+	$('#noclip_option').change(function() {
+		use_noclip = $('#noclip_option').prop('checked');
+	});
 	$('#lighting_option').change(function() {
 		use_lighting = $('#lighting_option').prop('checked');
 	});
@@ -1290,7 +1331,23 @@ $(document).ready(function() {
 		player = select_map();
 	});
 // Return true if there is no intersection with the map.
-	function test_intersection(old, viewpoint) {
+	function test_intersection(previous, viewpoint) {
+		if(use_noclip) {
+			return true;
+		}
+		var leaf = bsp.find_leaf(viewpoint);
+		var radius = 8;
+		if(!leaf.faces.every(function (face) {
+			return !face.object.intersects_sphere(viewpoint,radius);
+		})) {
+			return false;
+		}
+		var previous_leaf = bsp.find_leaf(previous);
+		if(!previous_leaf.faces.every(function (face) {
+			return !face.object.intersects_segment(previous,viewpoint);
+		})) {
+			return false;
+		}
 		return true;
 	}
 	(function () {

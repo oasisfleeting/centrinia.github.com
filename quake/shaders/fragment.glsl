@@ -53,8 +53,8 @@ vec2 cubemap(vec3 vector)
 
 void main(void) {
 	vec3 uAmbientColor = vec3(0.2,0.2,0.2);
-	vec3 uPointLightingColor = vec3(0.7,0.6,0.3)*10.0;
-	vec3 lantern_color = vec3(0.1,0.2,0.7)*5.0;
+	vec3 uPointLightingColor = vec3(0.7,0.6,0.3)*5.0;
+	vec3 lantern_color = vec3(0.1,0.2,0.7)*2.0;
 	//vec3 lantern_color = vec3(0.1,0.2,0.7)*0.0;
 
 	vec4 texcolor = vec4(vTransformedNormal,1.0);
@@ -71,7 +71,7 @@ void main(void) {
 			vec3 lightDirection = normalize(vec3(0,0,0)-view_position.xyz);
 			//vec3 lightDirection = normalize(vec3(0,0,1));
 
-			float directionalLightWeighting = pow(max(dot(vTransformedNormal, lightDirection), 0.0),2.0);
+			float directionalLightWeighting = max(dot(vTransformedNormal, lightDirection), 0.0);
 
 			float inverse_square = pow(length(view_position.xyz),-2.0);
 			lightWeighting = uAmbientColor + 

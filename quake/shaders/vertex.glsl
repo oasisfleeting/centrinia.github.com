@@ -24,13 +24,7 @@ void main(void) {
 	view_position = uMVMatrix * vertex_position;
 	gl_Position = uPMatrix * view_position;
 
-	//vColor = aVertexColor;
 	vTransformedNormal = normalize(uNMatrix * aVertexNormal);
-	//vTransformedNormal = normalize(uNMatrix * (aVertexColor.xyz*2.0-1.0));
-	//vTransformedNormal = normalize(uMVMatrix*vec4(aVertexNormal,0)).xyz;
 	vTextureRange = aVertexTextureRange;
 	vTextureCoord = aVertexTextureCoordinate;
-	//vec3 tangent = cross(vTransformedNormal,vertex_position.xyz);
-	//vec3 bitangent = cross(vTransformedNormal,tangent);
-	//vTextureCoord = vec4(dot(tangent,view_position.xyz), dot(bitangent,view_position.xyz), 0.0,1.0);
 }
