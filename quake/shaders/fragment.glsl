@@ -3,7 +3,6 @@
 //precision lowp float;
 precision mediump float;
 
-uniform vec4 uDummy;
 uniform vec2 texture_size;
 
 uniform bool use_lighting;
@@ -58,6 +57,7 @@ void main(void) {
 	//vec3 lantern_color = vec3(0.1,0.2,0.7)*0.0;
 
 	vec4 texcolor = vec4(vTransformedNormal,1.0);
+	//vec4 texcolor = vec4(1,1,1,1);
 	vec3 lightWeighting = vec3(1,1,1);
 	if(vTextureRange.z > 0.0) 
 	{

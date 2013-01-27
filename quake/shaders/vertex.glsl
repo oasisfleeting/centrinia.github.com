@@ -1,9 +1,8 @@
 
 attribute vec3 aVertexPosition;
-//attribute vec4 aVertexColor;
 attribute vec3 aVertexNormal;
 attribute vec4 aVertexTextureRange;
-attribute vec4 aVertexTextureCoordinate;
+attribute vec4 aVertexTextureCoord;
 
 uniform mat4 uMVMatrix;
 uniform mat3 uNMatrix;
@@ -11,10 +10,9 @@ uniform mat4 uPMatrix;
 
 uniform vec2 texture_size;
 
-varying vec3 vTransformedNormal;
-
 varying vec4 vTextureCoord;
 varying vec4 vTextureRange;
+varying vec3 vTransformedNormal;
 varying vec4 view_position;
 varying vec4 vertex_position;
 
@@ -26,5 +24,5 @@ void main(void) {
 
 	vTransformedNormal = normalize(uNMatrix * aVertexNormal);
 	vTextureRange = aVertexTextureRange;
-	vTextureCoord = aVertexTextureCoordinate;
+	vTextureCoord = aVertexTextureCoord;
 }

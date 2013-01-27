@@ -1,9 +1,15 @@
+"use strict";
+
 var texture_images;
 var log_draw_count;
 var log_traverse_count;
 var canvas_element;
+var canvas_element2;
 var canvas_context;
 var webgl_context;
+
+var level;
+var texture_indexes;
 
 var use_individual_vertices = true;
 var maximum_draw_count = null;
@@ -17,7 +23,7 @@ var use_webgl = use_canvas;
 var use_noclip = true;
 var use_blending = false;
 
-config = {
+var config = {
 	'key bindings' : [
 		{
 			'binding': 'turn left',
@@ -340,6 +346,7 @@ function Face(definition,level,buffers) {
 	if(!this.plane.object) {
 		this.plane.object = new Plane(this.plane);
 	}
+	/*var face_normal;
 	var j=0;
 	do {
 		//vec3.subtract(level['vertices'][indexes[j]],level['vertices'][indexes[j+1]],v0);
@@ -353,7 +360,7 @@ function Face(definition,level,buffers) {
 		} while(i < indexes.length && (face_normal.norm() < 1-10));
 		j++;
 	} while(j+2 < indexes.length && face_normal.norm() <1e-10);
-	//this.normal = face_normal;
+	this.normal = face_normal;*/
 
 	this.normal = this.plane.object.normal;
 	if(!definition['front side']) {
@@ -551,7 +558,7 @@ function Node(node_definition,level,parent_node) {
 	this.child_leaves = node_definition['children leaves'].map(function (index) {
 		var definition = level['leaves'][index];
 		if(definition) {
-			leaf = new Leaf(definition,level,this_node);
+			var leaf = new Leaf(definition,level,this_node);
 			leaf.index = index;
 			return leaf;
 		} else {
@@ -694,9 +701,7 @@ $(document).ready(function() {
 			use_webgl = false;
 			use_canvas = true;
 		} else {
-			webgl_context.viewportWidth = canvas_element.width;
-			webgl_context.viewportHeight = canvas_element.height;
-			function get_shader(context,type,filename) {
+			var get_shader = function (context,type,filename) {
 				var shader;
 				var str;
 				$.ajax({async: false,
@@ -726,7 +731,7 @@ $(document).ready(function() {
 
 				return shader;
 			}
-			function initialize_shaders(context) {
+			var initialize_shaders = function (context) {
 				var vertex_shader;
 				var vertex_shader = get_shader(context, 'x-shader/x-vertex', 'vertex.glsl');
 				var fragment_shader = get_shader(context, 'x-shader/x-fragment', 'fragment.glsl');
@@ -745,6 +750,9 @@ $(document).ready(function() {
 				return shader_program;
 			}
 
+			webgl_context.viewportWidth = canvas_element.width;
+			webgl_context.viewportHeight = canvas_element.height;
+
 			var webgl_shader_program = initialize_shaders(webgl_context);
 
 			webgl_shader_program.vertexPositionAttribute = webgl_context.getAttribLocation(webgl_shader_program, "aVertexPosition");
@@ -757,8 +765,8 @@ $(document).ready(function() {
 			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexNormalAttribute);
 
 			webgl_shader_program.vertexTextureCoordinateAttribute =
-				webgl_context.getAttribLocation(webgl_shader_program, "aVertexTextureCoordinate");
-			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexTextrueCoordinateAttribute);
+				webgl_context.getAttribLocation(webgl_shader_program, "aVertexTextureCoord");
+			webgl_context.enableVertexAttribArray(webgl_shader_program.vertexTextureCoordinateAttribute);
 
 			webgl_shader_program.vertexTextureRangeAttribute =
 				webgl_context.getAttribLocation(webgl_shader_program, "aVertexTextureRange");
@@ -775,8 +783,11 @@ $(document).ready(function() {
 
 			var webgl_vertex_buffer;
 			var webgl_color_buffer;
+			var webgl_normal_buffer;
 			var webgl_texture_coordinate_buffer;
 			var webgl_texture_range_buffer;
+			var webgl_index_buffer;
+
 			webgl_context.enable(webgl_context.CULL_FACE);
 			webgl_context.cullFace(webgl_context.FRONT);
 			//webgl_context.cullFace(webgl_context.FRONT_AND_BACK);
@@ -802,11 +813,11 @@ $(document).ready(function() {
 		log_traverse_count=0;
 
 		function setup_scene() {
-			function perspective_matrix(fov, aspect, near, far) {
+			var perspective_matrix = function (fov, aspect, near, far) {
 				var t = near*Math.tan(fov*Math.PI/360);
 				var r = t*aspect;
-			return Matrix.frustum([[-r,r],[-t,t],[near,far]]);
-			}
+				return Matrix.frustum([[-r,r],[-t,t],[near,far]]);
+			};
 			//mat4.perspective(60, webgl_context.viewportWidth / webgl_context.viewportHeight, 0.1, 100.0, pMatrix);
 			//mat4.perspective(60, canvas_element.width / canvas_element.height, 1, 10000.0, pMatrix);
 			//var pMatrix = perspective_matrix(60, canvas_element.width / canvas_element.height, 1, 10000);
@@ -829,13 +840,7 @@ $(document).ready(function() {
 // Clear the automap.
 // Clear the canvas.
 			if(use_webgl && webgl_context) {
-				webgl_context.viewport(0, 0, webgl_context.viewportWidth, webgl_context.viewportHeight);
-				webgl_context.clearColor(0.5, 0.5, 0.5, 1.0);
-				webgl_context.clear(webgl_context.COLOR_BUFFER_BIT | webgl_context.DEPTH_BUFFER_BIT);
-
-
-
-				function setMatrixUniforms(p,mv,mvrot) {
+				var setMatrixUniforms = function (p,mv,mvrot) {
 					//var n = mv.qr()['Q'].slice(0,0,3,3);
 					//var n = mv.slice(0,0,3,3).qr()['Q'].transpose();
 					var n = mv.slice(0,0,3,3).inverse().transpose();
@@ -846,6 +851,11 @@ $(document).ready(function() {
 					webgl_context.uniformMatrix4fv(webgl_shader_program.mvMatrixUniform, false, mv.transpose().data);
 					webgl_context.uniformMatrix3fv(webgl_shader_program.nMatrixUniform, false, n.transpose().data);
 				}
+
+				webgl_context.viewport(0, 0, webgl_context.viewportWidth, webgl_context.viewportHeight);
+				webgl_context.clearColor(0.5, 0.5, 0.5, 1.0);
+				webgl_context.clear(webgl_context.COLOR_BUFFER_BIT | webgl_context.DEPTH_BUFFER_BIT);
+
 
 				webgl_context.bindBuffer(webgl_context.ARRAY_BUFFER, webgl_vertex_buffer);
 				webgl_context.vertexAttribPointer(webgl_shader_program.vertexPositionAttribute,
@@ -964,9 +974,9 @@ $(document).ready(function() {
 
 			setup_scene();
 			if(use_webgl && webgl_context) {
+				var flattened_indexes = [].concat.apply([],indexes);
 
 				webgl_context.bindBuffer(webgl_context.ELEMENT_ARRAY_BUFFER, webgl_index_buffer);
-				flattened_indexes = [].concat.apply([],indexes);
 
 				webgl_context.bufferData(
 					webgl_context.ELEMENT_ARRAY_BUFFER,
@@ -990,20 +1000,20 @@ $(document).ready(function() {
 				var cx = canvas_element.width/2;
 				var cy = canvas_element.height/2;
 
-				function rgb(c) {
+				var rgb = function (c) {
 					var color = c.map(function (x) { return Math.floor(Math.abs(x)*255) % 256; });
 					return 'rgb(' + ~~color[0] + ',' + ~~color[1] + ',' + ~~color[2] + ')';
-				}
-				function to_screen(projected) {
+				};
+				var to_screen = function (projected) {
 					//console.log('(x,y,z) : ' + projected[0] + ',' + projected[1] + ',' + projected[2] + ')');
 					//console.log('(x,y) : ' + (1+projected[0])*cx + ',' + (1-projected[1])*cy + ')');
 					var w = projected[3];
 					return [(1+projected[0]/w)*cx,(1-projected[1]/w)*cy];
 					//return [(1+projected[2])*cx,(1-projected[1])*cy];
-				}
+				};
 
 				// Clip the polygon inside [-1,1]^3
-				function clip_polygon(vertices) {
+				var clip_polygon = function (vertices) {
 					var planes = [];
 					var w = 1;
 					[-1,1].forEach(function(bound) {
@@ -1018,10 +1028,11 @@ $(document).ready(function() {
 								'dist' : dist
 							}));
 						});
-					})
+					});
 					return clip_polygon_cascade(vertices,planes);
-				}
-				function draw_polygon(vertices,color) {
+				};
+
+				var draw_polygon = function (vertices,color) {
 					//var projected = vertices.map(project_vertex);
 
 					// v[n] = p[n] - p[n-1]
@@ -1074,9 +1085,9 @@ $(document).ready(function() {
 							}
 						}
 					}
-				}
+				};
 
-				function from_indexes(triangle_index) {
+				var from_indexes = function (triangle_index) {
 					//var vertices = indexes.slice(triangle_index,triangle_index+3).
 					var vertices = triangle_index.map(
 					function (index) {
@@ -1124,11 +1135,12 @@ $(document).ready(function() {
 	var faces = null;
 	var leaves = null;
 	var visilist = null;
-	var level = null;
-	var texture_index = null;
+	level = null;
+	texture_indexes = null;
 
 	var webgl_vertices;
 	var webgl_colors;
+	var webgl_normals;
 	var webgl_texture_range;
 	var webgl_texture_coordinate;
 // Select and load a map.//{{{
@@ -1182,7 +1194,7 @@ $(document).ready(function() {
 		visilist = level['visibility list'];
 // Set up the vertex and color buffers.//{{{
 		function initialize_buffer(context, data, datatype,item_size) {
-			buffer = context.createBuffer();
+			var buffer = context.createBuffer();
 			context.bindBuffer(context.ARRAY_BUFFER, buffer);
 			var flattened_data;
 			if(data[0].length) {
@@ -1208,7 +1220,7 @@ $(document).ready(function() {
 			webgl_color_buffer = initialize_buffer(webgl_context, webgl_colors, Float32Array,3);
 			webgl_normal_buffer = initialize_buffer(webgl_context, webgl_normals, Float32Array,3);
 			webgl_texture_range_buffer = initialize_buffer(webgl_context, webgl_texture_range, Float32Array,4);
-			webgl_texture_coordinate_buffer = initialize_buffer(webgl_context, webgl_texture_coordinate, Float32Array,2);
+			webgl_texture_coordinate_buffer = initialize_buffer(webgl_context, webgl_texture_coordinate, Float32Array,4);
 			webgl_index_buffer = webgl_context.createBuffer();
 		}
 
@@ -1255,9 +1267,9 @@ $(document).ready(function() {
 			}
 		});
 
-		player_origin = level['player start']['origin'];
-		player_angle = Math.PI*level['player start']['angle']/180;
-		player = new Viewer(Math.PI/3,player_angle,Vector.create(player_origin));
+		var player_origin = level['player start']['origin'];
+		var player_angle = Math.PI*level['player start']['angle']/180;
+		var player = new Viewer(Math.PI/3,player_angle,Vector.create(player_origin));
 		return player;
 	}
 
@@ -1279,9 +1291,9 @@ $(document).ready(function() {
 
 	var lastTime = 0;
 
-	roll_angle = 0;
-	pitch_angle = 0;
-	function animate() {
+	var roll_angle = 0;
+	var pitch_angle = 0;
+	var animate = function () {
      	var timeNow = new Date().getTime();
       if (lastTime != 0) {
 			
@@ -1354,7 +1366,7 @@ $(document).ready(function() {
 		return true;
 	}
 	(function () {
-		"use strict";
+		//"use strict";
 		var depressed = [];
 		window.onkeydown = function (event) {
 			if(Object.keys(config['keycodes']['keys']).indexOf(event.which.toString()) >= 0 ||
