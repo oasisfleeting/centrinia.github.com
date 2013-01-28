@@ -57,7 +57,6 @@ void main(void) {
 	//vec3 lantern_color = vec3(0.1,0.2,0.7)*0.0;
 
 	vec4 texcolor = vec4(vTransformedNormal,1.0);
-	//vec4 texcolor = vec4(1,1,1,1);
 	vec3 lightWeighting = vec3(1,1,1);
 	if(vTextureRange.z > 0.0) 
 	{
@@ -79,8 +78,7 @@ void main(void) {
 				lantern_color * inverse_square;
 		}
 	} else {
-		//vec3 viewvec = (uMVMatrix*vec4(vertex_position.xyz,1)).xyz;
-		vec3 viewvec = normalize(uNMatrix*vertex_position.xyz);
+		vec3 viewvec = (uMVMatrix*vec4(vertex_position.xyz,1)).xyz;
 		vec2 size = vec2(-vTextureRange.z/2.0, -vTextureRange.w);
 		vec2 begin = vec2(vTextureRange.x+1.0, vTextureRange.y);
 		if(uUseTexturing) {
@@ -91,7 +89,4 @@ void main(void) {
 		lightWeighting = vec3(1,1,1);
 	}
 	gl_FragColor = vec4(texcolor.rgb*lightWeighting,texcolor.a);
-	//gl_FragColor = vec4((vTransformedNormal+1.0)/2.0,1.0);
-	//gl_FragColor = vec4(mod(vTextureCoord.st,1.0),0.0,1.0);
-	//gl_FragColor = vec4(vTextureCoord.st,0.0,1.0);
 }

@@ -811,6 +811,8 @@ $(document).ready(function() {
 	var redraw = function() {
 		log_draw_count=0;
 		log_traverse_count=0;
+		var pMatrix;
+		var mvMatrix;
 
 		function setup_scene() {
 			var perspective_matrix = function (fov, aspect, near, far) {
@@ -821,7 +823,7 @@ $(document).ready(function() {
 			//mat4.perspective(60, webgl_context.viewportWidth / webgl_context.viewportHeight, 0.1, 100.0, pMatrix);
 			//mat4.perspective(60, canvas_element.width / canvas_element.height, 1, 10000.0, pMatrix);
 			//var pMatrix = perspective_matrix(60, canvas_element.width / canvas_element.height, 1, 10000);
-			var pMatrix = perspective_matrix(60, canvas_element.width / canvas_element.height, 0.01, 100);
+			pMatrix = perspective_matrix(60, canvas_element.width / canvas_element.height, 0.01, 100);
 
 			/*mat4.multiply(
 			[	1,0,0,0.5,
@@ -830,7 +832,7 @@ $(document).ready(function() {
 				0,0,0,0.95
 			],pMatrix,pMatrix);*/
 
-			var mvMatrix = Matrix.identity(4);
+			mvMatrix = Matrix.identity(4);
 			mvMatrix = mvMatrix.scale([1/100,1/100,1/100]);
 			mvMatrix = mvMatrix.rotate(roll_angle, [Vector.create([1,0,0]),Vector.create([0,1,0])]);
 			mvMatrix = mvMatrix.rotate(pitch_angle-Math.PI/2, [Vector.create([0,1,0]),Vector.create([0,0,1])]);
