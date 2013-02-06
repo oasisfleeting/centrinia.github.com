@@ -11,7 +11,6 @@ level_lumps = ['THINGS','LINEDEFS','SIDEDEFS','VERTEXES','SEGS','SSECTORS','NODE
 levels = {}
 
 def process_level_lump(name,filepos,wad_file):
-
 	wad_file.seek(filepos)
 	lumps = []
 	if name == 'THINGS':
@@ -148,99 +147,7 @@ def process_level_lump(name,filepos,wad_file):
 	elif name == 'REJECT':
 		lump = {'reject': map(ord,wad_file.read(size))}
 		lumps.append(lump)
-
 	return lumps
-	
-def normalize_level(level):
-	vertices = map(lambda vertex: [vertex['x'],vertex['y'],1], level['VERTEXES'])
-
-	sectors = []
-	for sector in level['SECTORS']:
-		obj = sector.copy()
-		obj['linedefs'] = []
-		obj['vertexes'] = []
-		sectors.append(obj)
-
-	linedefs = []
-	for linedef in level['LINEDEFS']:
-		obj = linedef.copy()
-		obj['start vertex'] = vertices[linedef['start vertex']]
-		obj['end vertex'] = vertices[linedef['end vertex']]
-		if linedef['right sidedef'] >= 0:
-			linedef['right sidedef'] = level['SIDEDEFS'][linedef['right sidedef']]
-		else:
-			linedef['right sidedef'] = None
-		if linedef['right sidedef'] >= 0:
-			linedef['left sidedef'] = level['SIDEDEFS'][linedef['left sidedef']]
-		else:
-			linedef['left sidedef'] = None
-
-		linedefs.append(obj)
-
-	for linedef in linedefs:
-		sidedef_indexes = filter(lambda index: index>=0, map(lambda key: linedef[key],['right sidedef','left sidedef']))
-		sidedefs = map(lambda index: level['SIDEDEFS'][index], sidedef_indexes)
-		for sidedef in sidedefs:
-			sector = sectors[sidedef['sector']]
-
-			this_linedef = linedef.copy()
-			this_linedef['sidedef'] = sidedef
-			sector['linedefs'].append(this_linedef)
-	
-	def flip_linedef(linedef):
-		result = linedef.copy()
-		result['start vertex'] = linedef['end vertex']
-		result['end vertex'] = linedef['start vertex']
-		result['left sidedef'] = linedef['right sidedef']
-		result['right sidedef'] = linedef['left sidedef']
-		return result
-
-	def normalize_linedefs(linedefs):
-		current_linedef = linedefs[0]
-		linedefs.remove(current_linedef)
-
-		current_vertex = current_linedef['start vertex']
-		result = [(current_linedef,current_vertex)]
-
-		while len(linedefs)>0:
-			current_vertex = current_linedef['end vertex']
-			#(next_linedef,next_vertex) =																		\
-			#	next(((linedef,linedef['start vertex'])														\
-			#		for linedef in linedefs if linedef['start vertex'] == current_vertex),		\
-			#	next(((linedef,linedef['end vertex'])														\
-			#		for linedef in linedefs if linedef['end vertex'] == current_vertex), (None,None)))
-			next_linedef = None
-			for linedef in linedefs:
-				if linedef['start vertex'] == current_vertex:
-					next_linedef = linedef
-					linedefs.remove(linedef)
-					break
-				elif linedef['end vertex'] == current_vertex:
-					next_linedef = flip_linedef(linedef)
-					linedefs.remove(linedef)
-		 			break
-
-			#print '\t' + str(next_linedef)
-			#for linedef in linedefs:
-			#	print linedef['start vertex'],linedef['end vertex']
-			result.append((next_linedef,current_vertex))
-			current_linedef = next_linedef
-			if not current_linedef:
-				print current_vertex
-				for linedef in linedefs:
-					print linedef['start vertex'],linedef['end vertex']
-					#print linedef
-				print '\n'
-				for (linedef,vertex) in result:
-					print linedef['start vertex'],linedef['end vertex'],vertex
-		return result
-
-
-	for sector in sectors:
-		linedef_vertex = normalize_linedefs(sector['linedefs'])
-		for (linedef,vertex) in linedef_vertex:
-			sector['vertexes'].append(vertex)
-	return sectors
 
 def gcd(a,b):
 	if abs(a)<abs(b):
@@ -251,52 +158,110 @@ def gcd(a,b):
 		b = c
 	return a
 
-def reduce_projective(vector):
-	g = reduce(lambda acc,x: gcd(acc,x),vector[1:],vector[0])
-	if g!=0:
-		return map(lambda x: x/g,vector)
-	else:
-		return vector
+class Rational:
+	def __init__(self, num, den=1)
+		self.__num = num
+		self.__den = den
+	def reduce(self):
+		g = gcd(self.__num,self.__den)
+		if g != 0 and g != 1:
+			return Rational(self.__num/g,self.__den/g)
+		else
+			return self
 
-def subtract_vectors(vector0,vector1):
-	return map(lambda (x,y): x-y,zip(vector0,vector1))
+	def __binop(a,b,f):
+		return Rational(f(a.__num*b.__den,b.__num*a.__den),a.__den*b.__den).reduce()
 
-def subtract_vectors_projective(vector0,vector1):
-	vector2 = map(lambda (x,y): x*vector1[-1]-y*vector0[-1],zip(vector0[0:-1],vector1[0:-1]))
-	vector2.append(vector0[-1]*vector1[-1])
-	return reduce_projective(vector2)
+	def __add__(a,b):
+		return a.__binop(b,lambda x,y: x+y)
+	def __sub__(a,b):
+		return a.__binop(b,lambda x,y: x-y)
+	def __mul__(a,b):
+		return Rational(a.__num*b.__num,a.__den*b.__den).reduce()
+	def __div__(a,b):
+		return Rational(a.__num*b.__den,a.__den*b.__num).reduce()
+		
 
-def dot_product(vector0,vector1):
-	return sum(map(lambda (x,y): x*y,zip(vector0,vector1)))
+class Vector:
+	def __init__(self, elements=[]):
+		self.elements = list(elements)
+	def cross(a,b):
+		x = a.elements[1]*b.elements[2]-a.elements[2]*b.elements[1]
+		y = -(a.elements[0]*b.elements[2]-a.elements[2]*b.elements[0])
+		z = a.elements[0]*b.elements[1]-a.elements[1]*b.elements[0]
+		return Vector([x,y,z])
+	def dot(a,b):
+		return sum(map(lambda (x,y):x*y,zip(a.elements,b.elements)))
 
-def dot_product_projective(vector0,vector1):
-	return [dot_product(vector0[:-1],vector1[:-1]),vector0[-1]*vector1[-1]]
+class Plane:
+	def __init__(self,normal,dist):
+		self.__normal = normal
+		self.__dist = dist
 
-def normal_equation(plane,vector):
-	return dot_product(plane['normal'],vector)-plane['dist']
+class ProjVector:
+	def __init__(self, elements=[],projective=1):
+		self.elements = list(elements)
+		self.projective = projective
+	def __repr__(self):
+		return reduce(lambda acc,x: acc + str(x) + ':', self.elements,'[') + str(self.projective) + ']'
 
-def make_line_projective(end,start):
-	normal = subtract_vectors_projective(end,start)
-	normal[:2] = normal[1::-1]
-	normal[0] = -normal[0]
-	
-	print normal
-	#print end,start
-	#print normal
-	#normal[:-1] = normal[-2::-1]
-	#normal[0] = -normal[0]
+	def __binop(a,b,f):
+		c = ProjVector()
+		c.elements = map(lambda (x,y): f (x*b.projective,y*a.projective), zip(a.elements,b.elements))
+		c.projective = a.projective*b.projective
+		return c
+	def __add__(a,b):
+		return a.__binop(b,lambda x,y: x+y)
+	def __sub__(a,b):
+		return a.__binop(b,lambda x,y: x-y)
+	def __mul__(a,s):
+		c = ProjVector()
+		c.elements = map(lambda x: x*s,a.elements)
+		c.projective = a.projective
+		return c
+	def __div__(a,s):
+		c = ProjVector(a.elements)
+		c.projective = a.projective*s
+		return c
+	def reduce(self):
+		g = reduce(gcd,self.elements,self.projective)
+		if g!=0 and g!=1:
+			self.elements = map(lambda x: x/g,self.elements)
+			self.projective /= g
+		return self
+	def dimension(self):
+		return len(self.elements)
+	def dot(a,b):
+		c = ProjVector()
+		c.elements = [Vector(a.elements).dot(Vector(b.elements))]
+		c.projective = a.projective*b.projective
+		return c.reduce()
+	def normal_equation(a,b):
+		return reduce(lambda acc,(x,y):acc+x*y,zip(a.elements,b.elements),a.projective*b.projective)
 
-# [x/w,y/w,z/w] . [a/d,b/d,c/d] = [x,y,z].[a,b,c] / (w*d)
-# [normal.xyz*normal.w*start.w,dot(normal.xyz,start.xyz)]
-	dist = dot_product(normal[:-1],start[:-1])
-	normal[:-1] = map(lambda x: x*normal[-1]*start[-1], normal[:-1])
-	normal[-1] = -dist*normal[-1]
-	#normal[-1] = -dist
+	def cross(a,b):
+		c = ProjVector()
+		c.elements = Vector(a.elements).cross(Vector(b.elements)).elements
+		c.projective = a.projective*b.projective
+		return c.reduce()
+	@staticmethod
+	def make_line_2d(end,start,up = None):
+		direction = end-start
+		up = ProjVector([0,0,1])
+		c = direction.cross(up)
+		#c.projective = -c.projective
+		d = c.dot(start)
 
-	normal = map(lambda x: -x, normal)
-	#print dot_product(normal,start),dot_product(normal,end),normal
+		c.projective *= d.projective
+		c.projective -= d.elements[0]
+		return c.reduce()
+	@staticmethod
+	def zero(dimension):
+		return ProjVector([0 for x in range(dimension)])
 
-	return normal
+print u,v,x
+print x.normal_equation(u),x.normal_equation(v),x.normal_equation((u-v)*10230+v)
+print x.dot(u),x.dot(v),x.dot((u-v)*10230+v)
 
 def mix_projective(a,b,t):
 	# a*(1-t)+b*t => [a.xyz*(t.w-t.x)/(a.w*t.w) + b.xyz*t.x/(b.w*t.w),1]
@@ -702,8 +667,8 @@ with open('doom.wad','r') as wad_file:
 	#print normal
 
 	#for levelname in levels.keys():
-	for levelname in ['E1M1']:
-	#for levelname in []:
+	#for levelname in ['E1M1']:
+	for levelname in []:
 		print levelname
 		level = levels[levelname]
 		#thingname = 'REJECT'
