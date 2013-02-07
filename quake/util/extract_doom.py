@@ -256,8 +256,8 @@ def normalize_level(level):
 			sidedef = level['SIDEDEFS'][linedef['right sidedef']]
 		else:
 			sidedef = level['SIDEDEFS'][linedef['left sidedef']]
-		sector = level['SIDEDEFS'][sidedef['sector']]
-		seg['sector'] = sector
+		sector = level['SECTORS'][sidedef['sector']]
+		subsector['sector'] = sector
 
 	def carve_subsector(polygon, subsector):
 		result = polygon
@@ -272,12 +272,12 @@ def normalize_level(level):
 		for (next_polygon,is_right) in zip([right_polygon,left_polygon],[True,False]):
 			(is_node,child) = select_node_child(node,is_right,level)
 			if is_node:
-				draw_polygon(next_polygon,depth+1,bounds)
+				#draw_polygon(next_polygon,depth+1,bounds)
 				split_polygon(child,depth+1,next_polygon)
 			else:
 				flat = carve_subsector(next_polygon,child)
 				child['polygon'] = flat
-				draw_polygon(flat,depth+1,bounds)
+				#draw_polygon(flat,depth+1,bounds)
 
 	def draw_subsectors(node,depth):
 		for is_right in [True,False]:
@@ -311,7 +311,7 @@ def normalize_level(level):
 				[bounds[1][0],bounds[0][1],rational(0)],		\
 				[bounds[1][0],bounds[1][1],rational(0)],		\
 				[bounds[0][0],bounds[1][1],rational(0)]]))
-	draw_subsectors(level['NODES'][-1],0)
+	#draw_subsectors(level['NODES'][-1],0)
 
 	return level
 
@@ -456,55 +456,45 @@ def clip_polygon(vertexes,splitter,side):
 	return (right,left)
 
 def to_quake(level):
-	def parse_reject(sector_count,raw):
-		reject = []
-		for i in range(sector_count):
-			row = []
-			for j in range(sector_count):
-				index = i*sector_count+j
-				row.append((raw[index/8] >> (index % 8)) & 1 == 1);
-			reject.append(row)
-		return reject
-
-
-	def find_item(items,item):
+	def find_item(item_type,items,item):
 		if items.count(item) == 0:
-			items.append(item)
+			if item_type == 'vertex':
+				vertex = map(float,item.elements)
+				items.append(vertex)
+			elif item_type == 'plane':
+				normal = map(float,item.normal.elements)
+				dist = float(item.dist)
+				plane = {'normal': normal, 'dist': dist}
+				items.append(plane)
+			else:
+				items.append(item)
+
 			return len(items)-1
 		else:
 			return items.index(item)
 			
-	def augment_vertex(index,z):
-		vertex = level['VERTEXES'][index]
-		return Vector(map(rational,[vertex['x'],vertex['y'],z]))
-
-	def cross_product(vectors):
-		result = [	\
-			vectors[0][0]*vectors[1][1]-vectors[0][1]*vectors[1][2],
-			-(vectors[0][0]*vectors[1][2]-vectors[0][2]*vectors[1][2]),
-			vectors[0][1]*vectors[1][2]-vectors[0][2]*vectors[1][1]
-		]
-
-		return result
 	def make_wall_face(planes,vertexes,sector,seg):
+		def augment_vertex(index,elevation):
+			vertex = Vector(level['VERTEXES'][index]['vector'].elements)
+			vertex.elements[2] = rational(elevation)
+			return vertex
+
 		vertex_indexes = []
 
-		vertex_indexes.append(find_item(vertexes, augment_vertex(seg['start vertex'],sector['floor height'])))
-		vertex_indexes.append(find_item(vertexes, augment_vertex(seg['end vertex'],sector['floor height'])))
-		vertex_indexes.append(find_item(vertexes, augment_vertex(seg['end vertex'],sector['ceiling height'])))
-		vertex_indexes.append(find_item(vertexes, augment_vertex(seg['start vertex'],sector['ceiling height'])))
-
+		face_vertexes = []	
+		face_vertexes.append(augment_vertex(seg['start vertex'],sector['floor height']))
+		face_vertexes.append(augment_vertex(seg['end vertex'],sector['floor height']))
+		face_vertexes.append(augment_vertex(seg['end vertex'],sector['ceiling height']))
+		face_vertexes.append(augment_vertex(seg['start vertex'],sector['ceiling height']))
+		vertex_indexes = map(lambda face_vertex: find_item('vertex',vertexes, face_vertex), face_vertexes)
 		#if seg['direction'] != 0:
 		#	vertex_indexes.reverse()
-
 		
-		vertexes = map(lambda index: vertexes[index], vertex_indexes[:3])
-
 		#normal = cross_product(map(lambda i: subtract_vectors(vertexes[i],vertex0),vertex_indexes[1:3]))
 		#dist = dot_product(normal,vertex0)
-		normal = (vertexes[1]-vertexes[0]).cross(vertexes[2]-vertexes[0])
-		dist = normal.dot(vertexes[0])
-		return { 'plane id': find_item(planes, Plane(normal, dist)),
+		normal = (face_vertexes[1]-face_vertexes[0]).cross(face_vertexes[2]-face_vertexes[0])
+		dist = normal.dot(face_vertexes[0])
+		return { 'plane id': find_item('plane',planes, Plane(normal, dist)),
 					'texture index': 0,
 					'vertices index': vertex_indexes,
 					'front side': True
@@ -532,151 +522,58 @@ def to_quake(level):
 		return rle
 
 	sector_count = len(levels[levelname]['SECTORS'])
-	reject = parse_reject(sector_count,level['REJECT'][0]['reject'])
-
+	#reject = parse_reject(sector_count,level['REJECT'][0]['reject'])
+	
 	visilist = []
 	visilist_offsets = []
-	for sector in level['SECTORS']:
-		row = reject[sector['index']]
-		rle = visilist_rle(row)
-		visilist_offsets.append(len(visilist))
-		visilist.extend(rle)
+	#for sector in level['SECTORS']:
+	#	row = reject[sector['index']]
+	#	rle = visilist_rle(row)
+	#	visilist_offsets.append(len(visilist))
+	#	visilist.extend(rle)
 
+	up_vector = Vector(map(rational,[0,0,1]))
+	down_vector = Vector(map(rational,[0,0,-1]))
 	# 'planes'
 	# 'normal','dist'
 	planes = []
-
 	nodes = []
-	for node in level['NODES']:
-		node['parent'] = None
-
 	for node in level['NODES']:
 		children_nodes = [None,None]
 		children_leaves = [None,None]
 		if node['right child'] & 0x8000 != 0:
 			children_leaves[0] = node['right child'] & 0x7fff
-			level['SSECTORS'][children_leaves[0]]['parent'] = node
 		else:
 			children_nodes[0] = node['right child']
-			level['NODES'][children_nodes[0]]['parent'] = node
 
 		if node['left child'] & 0x8000 != 0:
 			children_leaves[1] = node['left child'] & 0x7fff
-			level['SSECTORS'][children_leaves[1]]['parent'] = node
 		else:
 			children_nodes[1] = node['left child']
-			level['NODES'][children_nodes[1]]['parent'] = node
 
 		partition_line_vertex0 = Vector(map(rational,[node['partition line x'], node['partition line y'],0]))
 		partition_line_vertex1 = partition_line_vertex0 + \
-				Vector(map(rational,[node['partition line delta x'], node['partition line delta y'],0]))
+		Vector(map(rational,[node['partition line delta x'], node['partition line delta y'],0]))
 		plane = make_line(partition_line_vertex1, partition_line_vertex0)
 
 		#print dist,normal
-		plane_id = find_item(planes, plane)
+		plane_id = find_item('plane',planes, plane)
 
 		node['plane'] = planes[plane_id]
-		nodes.append({	'plane id': plane_id,
-							'children nodes': children_nodes,
-							'children leaves': children_leaves
-							})
-	for node in nodes:
-		plane = planes[node['plane id']]
-		for k in [0,1]:
-			if node['children nodes'][k]:
-				t = level['NODES'][node['children nodes'][k]]
-				vec = [t['partition line x'],t['partition line y'],0]
-				#print k,-(k*2-1)*(dot_product(plane['normal'],vec)-plane['dist'])
-				vec = [t['partition line x']+t['partition line delta x'],t['partition line y']+t['partition line delta y'],0]
-				#print k,-(k*2-1)*(dot_product(plane['normal'],vec)-plane['dist'])
-			if node['children leaves'][k]:
-				ssec = level['SSECTORS'][node['children leaves'][k]]
-				dots = []
-				for i in range(ssec['seg count']):
-					seg = level['SEGS'][ssec['seg offset']+i]
-					t = level['VERTEXES'][seg['start vertex']]
-					vec = Vector(map(rational,[t['x'],t['y'],0]))
-					#print plane,vec
-					dots.append(-rational(2*k-1)*plane.normal_equation(vec))
-				print 1-2*k,dots
+		nodes.append({  'plane id': plane_id,		\
+			'children nodes': children_nodes,	\
+			'children leaves': children_leaves	\
+			})
 
-	# SSECTORS <-> 'leaves'
-	# 'face indexes','visilist start','type'
 
-	def sector_from_ssector(ssector):
-		seg = level['SEGS'][ssector['seg offset']]
-		linedef = level['LINEDEFS'][seg['linedef']]
-		if seg['direction'] == 0:
-			sidedef = level['SIDEDEFS'][linedef['right sidedef']]
-		else:
-			sidedef = level['SIDEDEFS'][linedef['left sidedef']]
-		sector = level['SECTORS'][sidedef['sector']]
-		return sector
-
-	def vertex_to_vector(v):
-		return Vector(map(rational,[v['x'],v['y'],0]))
-
-	def leaf_vertexes(ssector):
-		polygon =map(Vector,										\
-							[[bounds[0][0],bounds[1][0],rational(0)],	\
-							[bounds[0][1],bounds[1][0],rational(0)],	\
-							[bounds[0][1],bounds[1][1],rational(0)],	\
-							[bounds[0][0],bounds[1][1],rational(0)]])
-
-		#print 'bound:\t' + str(polygon)
-		# Only maintain the right side of the clipping planes.
-
-		previous = ssector
-		node = ssector['parent']
-		while node != None:
-			if node['right child']&0x7fff == previous['index']:
-				side = rational(1)
-			else:
-				side = rational(-1)
-
-			#print node['plane']
-			#print polygon,node['plane']
-			#print map(node['plane'].normal_equation, polygon)
-			polygon = clip_polygon(polygon,node['plane'],side)
-			previous = node
-			node = node['parent']
-			#print 'side:\t' + str(side)
-
-		for seg_index in range(seg_first,seg_count+seg_first):
-			side = rational(1)
-			seg = level['SEGS'][seg_index]
-			vertex0 = vertex_to_vector(level['VERTEXES'][seg['start vertex']])
-			vertex1 = vertex_to_vector(level['VERTEXES'][seg['end vertex']])
-			splitter = make_line(vertex0, vertex1)
-			#print 'polygon:\t' + str(polygon) + ',' + str(splitter)
-			#print polygon,splitter
-			#print map(splitter.normal_equation, polygon)
-			polygon = clip_polygon(polygon,splitter,side)
-
-		#print 'clipped:\t' + str(polygon)
-
-		return polygon
-
-	bounds = map(rational,[level['VERTEXES'][0]['x'],level['VERTEXES'][0]['y']])
-	#bounds = [[2**32,2**32,1],[-2**32,-2**32,1]]
-	bounds = [bounds,bounds]
-	for vertex in level['VERTEXES']:
-		x = rational(vertex['x'])
-		y = rational(vertex['y'])
-		bounds[0][0] = min(x,bounds[0][0])
-		bounds[0][1] = max(x,bounds[0][1])
-		bounds[1][0] = min(y,bounds[1][0])
-		bounds[1][1] = max(y,bounds[1][1])
-		
+	
 	leaves = []
 	vertexes = []
 	faces = []
-	for ssector in level['SSECTORS']:
-		print ssector['index'],len(level['SSECTORS'])
-		seg_count = ssector['seg count']
-		seg_first = ssector['seg offset']
-		sector = sector_from_ssector(ssector)
-		# level['SECTORS'][level['LINEDEFS'][level['SEGS'][ssector['seg offset']]['linedef']]['sector']]
+	for subsector in level['SSECTORS']:
+		seg_count = subsector['seg count']
+		seg_first = subsector['seg offset']
+		sector = subsector['sector']
 
 		face_indexes = []
 		floor_vertexes = []
@@ -684,33 +581,35 @@ def to_quake(level):
 		#print seg_first,seg_count
 		for seg_index in range(seg_first,seg_count+seg_first):
 			seg = level['SEGS'][seg_index]
-			if level['LINEDEFS'][seg['linedef']]['flags'] & 0x04 == 0: # Two sided
-				wall = make_wall_face(planes,vertexes,sector,seg)
-				face_indexes.append(find_item(faces,wall))
+			if level['LINEDEFS'][seg['linedef']]['flags'] & 0x04 == 0: # Not two sided
+				face = make_wall_face(planes,vertexes,sector,seg)
+				face_indexes.append(find_item('face',faces,face))
 
-		floor_vertexes = leaf_vertexes(ssector)
+		floor_vertexes = subsector['polygon']
 		ceiling_vertexes = list(floor_vertexes);
 		ceiling_vertexes.reverse()
 
 		floor_vertex_indexes = []
 		for vertex in floor_vertexes:
+			#print sector
 			vertex.elements[2] = rational(sector['floor height'])
 			#print vertex
-			floor_vertex_indexes.append(find_item(vertexes,vertex))
+			floor_vertex_indexes.append(find_item('vertex',vertexes,vertex))
 
 
 		ceiling_vertex_indexes = []
 		for vertex in ceiling_vertexes:
 			vertex.elements[2] = rational(sector['ceiling height'])
-			ceiling_vertex_indexes.append(find_item(vertexes,vertex))
+			ceiling_vertex_indexes.append(find_item('vertex',vertexes,vertex))
 
 # Make the ceiling and floor faces.
-		floor_face = {	'plane id': find_item(planes,Plane(map(rational,[0,0,1]), rational(sector['floor height']))),
+
+		floor_face = {	'plane id': find_item('plane',planes,Plane(up_vector, rational(sector['floor height']))),
 							'texture index': 0,
 							'vertices index': floor_vertex_indexes,
 							'front side': True
 							}
-		ceiling_face = {	'plane id': find_item(planes, Plane(map(rational,[0,0,-1]),rational(-sector['ceiling height']))),
+		ceiling_face = {	'plane id': find_item('plane',planes, Plane(down_vector,rational(-sector['ceiling height']))),
 								'texture index': 0,
 								'vertices index': ceiling_vertex_indexes,
 								'front side': True
@@ -720,22 +619,19 @@ def to_quake(level):
 			vertex = vertexes[index]
 
 		if len(floor_face['vertices index'])>=3:
-			face_indexes.append(find_item(faces,floor_face))
+			face_indexes.append(find_item('face',faces,floor_face))
 		#if len(ceiling_face['vertices index'])>=3:
-		#	face_indexes.append(find_item(faces,ceiling_face))
+		#	face_indexes.append(find_item('face',faces,ceiling_face))
 
 		leaf = {	'face indexes': face_indexes,
-					'visilist start': visilist_offsets[sector['index']],
+					'visilist start': -1, #visilist_offsets[sector['index']],
 					'type': -1
 				};
 		leaves.append(leaf)
+	#def project_down(v):
+	#	return map(lambda x: float(x), v.elements)
+	#vertexes = map(project_down, vertexes)
 
-	for node in level['NODES']:
-		del node['plane']
-	def project_down(v):
-		return map(lambda x: float(x), v.elements)
-
-	vertexes = map(project_down, vertexes)
 	return {	'nodes': nodes,
 				'faces': faces,
 				'leaves': leaves,
@@ -798,24 +694,24 @@ with open('doom.wad','r') as wad_file:
 
 	window_size = 700
 	window_padding = 10
-	window = pygame.display.set_mode((window_size+2*window_padding,window_size+2*window_padding))
+	#window = pygame.display.set_mode((window_size+2*window_padding,window_size+2*window_padding))
 	levelnames = levels.keys()
 	levelnames.sort()
-	for levelname in levelnames:
-	#for levelname in ['MAP31']:
+	#for levelname in levelnames:
+	for levelname in ['E1M1']:
 	#for levelname in []:
-		window.fill((0,0,0))
+		#window.fill((0,0,0))
 		quake = {}
 		level = levels[levelname]
 		print levelname
 		normalize_level(level)['VERTEXES']
-		time.sleep(5)
+		#time.sleep(5)
 		#for x in normalize_level(level)['VERTEXES']:
 		#	print x
 
 		#thingname = 'REJECT'
 		#sector_count = len(levels[levelname]['SECTORS'])
-		#quake = to_quake(level)
+		quake = to_quake(level)
 
 		player_origin = [0,0,0]
 		for thing in level['THINGS']:
