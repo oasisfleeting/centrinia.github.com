@@ -203,7 +203,7 @@ def draw_polygon(polygon,depth,bounds):
 		cy = float(1-(current.elements[1]-bounds[0][1])/scale_y)*window_size+window_padding
 		pointlist.append((cx,cy))
 
-	color_level = 100
+	color_level = 150
 	#print polygon
 	pygame.draw.lines(window,(((depth&1)^1)*color_level,0,(depth&1)*color_level),True,pointlist)
 	#pygame.draw.polygon(window,(((depth&1)^1)*color_level,0,(depth&1)*color_level),pointlist)
@@ -249,6 +249,10 @@ def normalize_level(level):
 		elements.append(rational(0))
 		vertex['vector'] = Vector(elements)
 
+	for sector in level['SECTORS']:
+		sector['floor height'] = rational(sector['floor height'])
+		sector['ceiling height'] = rational(sector['ceiling height'])
+
 	for subsector in level['SSECTORS']:
 		seg = level['SEGS'][subsector['seg offset']]
 		linedef = level['LINEDEFS'][seg['linedef']]
@@ -272,12 +276,12 @@ def normalize_level(level):
 		for (next_polygon,is_right) in zip([right_polygon,left_polygon],[True,False]):
 			(is_node,child) = select_node_child(node,is_right,level)
 			if is_node:
-				#draw_polygon(next_polygon,depth+1,bounds)
+				draw_polygon(next_polygon,depth+1,bounds)
 				split_polygon(child,depth+1,next_polygon)
 			else:
 				flat = carve_subsector(next_polygon,child)
 				child['polygon'] = flat
-				#draw_polygon(flat,depth+1,bounds)
+				draw_polygon(flat,depth+1,bounds)
 
 	def draw_subsectors(node,depth):
 		for is_right in [True,False]:
@@ -311,7 +315,7 @@ def normalize_level(level):
 				[bounds[1][0],bounds[0][1],rational(0)],		\
 				[bounds[1][0],bounds[1][1],rational(0)],		\
 				[bounds[0][0],bounds[1][1],rational(0)]]))
-	#draw_subsectors(level['NODES'][-1],0)
+	draw_subsectors(level['NODES'][-1],0)
 
 	return level
 
@@ -473,19 +477,19 @@ def to_quake(level):
 		else:
 			return items.index(item)
 			
-	def make_wall_face(planes,vertexes,sector,seg):
+	def make_wall_face(planes,vertexes,seg,floor_height,ceiling_height):
 		def augment_vertex(index,elevation):
 			vertex = Vector(level['VERTEXES'][index]['vector'].elements)
-			vertex.elements[2] = rational(elevation)
+			vertex.elements[2] = elevation
 			return vertex
 
 		vertex_indexes = []
 
 		face_vertexes = []	
-		face_vertexes.append(augment_vertex(seg['start vertex'],sector['floor height']))
-		face_vertexes.append(augment_vertex(seg['end vertex'],sector['floor height']))
-		face_vertexes.append(augment_vertex(seg['end vertex'],sector['ceiling height']))
-		face_vertexes.append(augment_vertex(seg['start vertex'],sector['ceiling height']))
+		face_vertexes.append(augment_vertex(seg['start vertex'],floor_height))
+		face_vertexes.append(augment_vertex(seg['end vertex'],floor_height))
+		face_vertexes.append(augment_vertex(seg['end vertex'],ceiling_height))
+		face_vertexes.append(augment_vertex(seg['start vertex'],ceiling_height))
 		vertex_indexes = map(lambda face_vertex: find_item('vertex',vertexes, face_vertex), face_vertexes)
 		#if seg['direction'] != 0:
 		#	vertex_indexes.reverse()
@@ -539,6 +543,8 @@ def to_quake(level):
 	planes = []
 	nodes = []
 	for node in level['NODES']:
+		print 'node:\t' + str(float(node['index'])/len(level['NODES']))
+
 		children_nodes = [None,None]
 		children_leaves = [None,None]
 		if node['right child'] & 0x8000 != 0:
@@ -571,6 +577,7 @@ def to_quake(level):
 	vertexes = []
 	faces = []
 	for subsector in level['SSECTORS']:
+		print 'subsector:\t' + str(float(subsector['index'])/len(level['SSECTORS']))
 		seg_count = subsector['seg count']
 		seg_first = subsector['seg offset']
 		sector = subsector['sector']
@@ -578,12 +585,30 @@ def to_quake(level):
 		face_indexes = []
 		floor_vertexes = []
 		ceiling_vertexes = []
+		floor_height = sector['floor height']
+		ceiling_height = sector['ceiling height']
 		#print seg_first,seg_count
 		for seg_index in range(seg_first,seg_count+seg_first):
 			seg = level['SEGS'][seg_index]
 			if level['LINEDEFS'][seg['linedef']]['flags'] & 0x04 == 0: # Not two sided
-				face = make_wall_face(planes,vertexes,sector,seg)
+				face = make_wall_face(planes,vertexes,seg,floor_height, ceiling_height)
 				face_indexes.append(find_item('face',faces,face))
+			else:
+				linedef = level['LINEDEFS'][seg['linedef']]
+				if seg['direction'] != 0:
+					next_sidedef = level['SIDEDEFS'][linedef['right sidedef']]
+				else:
+					next_sidedef = level['SIDEDEFS'][linedef['left sidedef']]
+				next_sector = level['SECTORS'][next_sidedef['sector']]
+				next_floor_height = next_sector['floor height']
+				next_ceiling_height = next_sector['ceiling height']
+
+				if next_floor_height > floor_height:
+					floor_face = make_wall_face(planes,vertexes,seg,floor_height, next_floor_height)
+					face_indexes.append(find_item('face',faces,floor_face))
+				if next_ceiling_height < ceiling_height:
+					floor_face = make_wall_face(planes,vertexes,seg,next_ceiling_height,ceiling_height)
+					face_indexes.append(find_item('face',faces,floor_face))
 
 		floor_vertexes = subsector['polygon']
 		ceiling_vertexes = list(floor_vertexes);
@@ -592,24 +617,24 @@ def to_quake(level):
 		floor_vertex_indexes = []
 		for vertex in floor_vertexes:
 			#print sector
-			vertex.elements[2] = rational(sector['floor height'])
+			vertex.elements[2] = floor_height
 			#print vertex
 			floor_vertex_indexes.append(find_item('vertex',vertexes,vertex))
 
 
 		ceiling_vertex_indexes = []
 		for vertex in ceiling_vertexes:
-			vertex.elements[2] = rational(sector['ceiling height'])
+			vertex.elements[2] = ceiling_height
 			ceiling_vertex_indexes.append(find_item('vertex',vertexes,vertex))
 
 # Make the ceiling and floor faces.
 
-		floor_face = {	'plane id': find_item('plane',planes,Plane(up_vector, rational(sector['floor height']))),
+		floor_face = {	'plane id': find_item('plane',planes,Plane(up_vector, floor_height)),
 							'texture index': 0,
 							'vertices index': floor_vertex_indexes,
 							'front side': True
 							}
-		ceiling_face = {	'plane id': find_item('plane',planes, Plane(down_vector,rational(-sector['ceiling height']))),
+		ceiling_face = {	'plane id': find_item('plane',planes, Plane(down_vector,-ceiling_height)),
 								'texture index': 0,
 								'vertices index': ceiling_vertex_indexes,
 								'front side': True
@@ -620,8 +645,8 @@ def to_quake(level):
 
 		if len(floor_face['vertices index'])>=3:
 			face_indexes.append(find_item('face',faces,floor_face))
-		#if len(ceiling_face['vertices index'])>=3:
-		#	face_indexes.append(find_item('face',faces,ceiling_face))
+		if len(ceiling_face['vertices index'])>=3:
+			face_indexes.append(find_item('face',faces,ceiling_face))
 
 		leaf = {	'face indexes': face_indexes,
 					'visilist start': -1, #visilist_offsets[sector['index']],
@@ -648,8 +673,8 @@ with open('doom.wad','r') as wad_file:
 	wad_header = wad_file.read(HEADER_SIZE)
 	identification,numlumps,infotableofs = struct.unpack('4sII',wad_header)
 
-	wadtype = 'doom'
-	#wadtype = 'hexen'
+	#wadtype = 'doom'
+	wadtype = 'hexen'
 
 	print identification
 	print numlumps
@@ -692,25 +717,21 @@ with open('doom.wad','r') as wad_file:
 	#print clip_polygon(polygon,normal),polygon
 	#print normal
 
-	window_size = 700
+	window_size = 900
 	window_padding = 10
-	#window = pygame.display.set_mode((window_size+2*window_padding,window_size+2*window_padding))
+	window = pygame.display.set_mode((window_size+2*window_padding,window_size+2*window_padding))
 	levelnames = levels.keys()
 	levelnames.sort()
-	#for levelname in levelnames:
-	for levelname in ['E1M1']:
+	for levelname in levelnames:
+	#for levelname in ['MAP01']:
 	#for levelname in []:
-		#window.fill((0,0,0))
+		window.fill((0,0,0))
 		quake = {}
 		level = levels[levelname]
 		print levelname
 		normalize_level(level)['VERTEXES']
 		#time.sleep(5)
-		#for x in normalize_level(level)['VERTEXES']:
-		#	print x
 
-		#thingname = 'REJECT'
-		#sector_count = len(levels[levelname]['SECTORS'])
 		quake = to_quake(level)
 
 		player_origin = [0,0,0]
@@ -738,8 +759,8 @@ with open('doom.wad','r') as wad_file:
 		#for thingname in levels[levelname].keys():
 		#print('\t{}: {}'.format(thingname,levels[levelname][thingname]))
 	print 'Finished'
-	while True:
-		for event in pygame.event.get():
-			if event.type == pygame.QUIT:
-				sys.exit(0)
+	#while True:
+	#	for event in pygame.event.get():
+	#		if event.type == pygame.QUIT:
+	#			sys.exit(0)
 

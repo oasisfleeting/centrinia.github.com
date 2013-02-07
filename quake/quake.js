@@ -405,7 +405,11 @@ function Face(definition,level,buffers) {
 	var levelname = level['filename'];
 	var texture_index = definition['texture index'];
 	var texinfo = level['textures'][texture_index];
-	var atlas_entry = texture_indexes[levelname][texinfo['miptex index']];
+	if(texture_indexes[levelname]) {
+		var atlas_entry = texture_indexes[levelname][texinfo['miptex index']];
+	} else {
+		var atlas_entry = texture_indexes['start.bsp'][texinfo['miptex index']];
+	}
 	function compute_texture_coord(vertex,vector,dist) {
 		return vertex.dot(vector)+dist;
 	}
@@ -788,8 +792,9 @@ $(document).ready(function() {
 			var webgl_texture_range_buffer;
 			var webgl_index_buffer;
 
-			webgl_context.enable(webgl_context.CULL_FACE);
-			webgl_context.cullFace(webgl_context.FRONT);
+			webgl_context.disable(webgl_context.CULL_FACE);
+			//webgl_context.enable(webgl_context.CULL_FACE);
+			//webgl_context.cullFace(webgl_context.FRONT);
 			//webgl_context.cullFace(webgl_context.FRONT_AND_BACK);
 			if(use_blending) {
 				webgl_context.disable(webgl_context.DEPTH_TEST);
@@ -807,13 +812,20 @@ $(document).ready(function() {
 		canvas_context = canvas_element.getContext('2d');
 	}
 
-// Redraw the screen and automap.//{{{
+	var state = {
+	'player':null,
+	'transformations': {
+		'modelview': null,
+		'perspective': null,
+		'normal': null
+	},
+	'rendering': {
+		'leaf': null,
+		'indexes':null
+		}
+	};
+// Redraw the screen.//{{{
 	var redraw = function() {
-		log_draw_count=0;
-		log_traverse_count=0;
-		var pMatrix;
-		var mvMatrix;
-
 		function setup_scene() {
 			var perspective_matrix = function (fov, aspect, near, far) {
 				var t = near*Math.tan(fov*Math.PI/360);
@@ -823,35 +835,29 @@ $(document).ready(function() {
 			//mat4.perspective(60, webgl_context.viewportWidth / webgl_context.viewportHeight, 0.1, 100.0, pMatrix);
 			//mat4.perspective(60, canvas_element.width / canvas_element.height, 1, 10000.0, pMatrix);
 			//var pMatrix = perspective_matrix(60, canvas_element.width / canvas_element.height, 1, 10000);
-			pMatrix = perspective_matrix(60, canvas_element.width / canvas_element.height, 0.01, 100);
+			state['transformations']['perspective'] =
+				perspective_matrix(60, canvas_element.width / canvas_element.height, 0.01, 100);
 
-			/*mat4.multiply(
-			[	1,0,0,0.5,
-				0,1,0,-0.5,
-				0,0,1,1,
-				0,0,0,0.95
-			],pMatrix,pMatrix);*/
-
-			mvMatrix = Matrix.identity(4);
-			mvMatrix = mvMatrix.scale([1/100,1/100,1/100]);
-			mvMatrix = mvMatrix.rotate(roll_angle, [Vector.create([1,0,0]),Vector.create([0,1,0])]);
-			mvMatrix = mvMatrix.rotate(pitch_angle-Math.PI/2, [Vector.create([0,1,0]),Vector.create([0,0,1])]);
-			mvMatrix = mvMatrix.rotate(Math.PI/2-player.direction_angle, [Vector.create([1,0,0]),Vector.create([0,1,0])]);
-			mvMatrix = mvMatrix.translate(player.viewpoint.scale(-1));
+			state['transformations']['modelview'] = Matrix.identity(4);
+			state['transformations']['modelview'] = state['transformations']['modelview'].scale([1/100,1/100,1/100]);
+			state['transformations']['modelview'] = state['transformations']['modelview'].rotate(roll_angle, [Vector.create([1,0,0]),Vector.create([0,1,0])]);
+			state['transformations']['modelview'] = state['transformations']['modelview'].rotate(pitch_angle-Math.PI/2, [Vector.create([0,1,0]),Vector.create([0,0,1])]);
+			state['transformations']['modelview'] = state['transformations']['modelview'].rotate(Math.PI/2-state['player'].direction_angle, [Vector.create([1,0,0]),Vector.create([0,1,0])]);
+			state['transformations']['modelview'] = state['transformations']['modelview'].translate(state['player'].viewpoint.scale(-1));
 
 // Clear the automap.
 // Clear the canvas.
 			if(use_webgl && webgl_context) {
-				var setMatrixUniforms = function (p,mv,mvrot) {
+				var setMatrixUniforms = function () {
 					//var n = mv.qr()['Q'].slice(0,0,3,3);
 					//var n = mv.slice(0,0,3,3).qr()['Q'].transpose();
-					var n = mv.slice(0,0,3,3).inverse().transpose();
+					state['transformations']['normal'] = state['transformations']['modelview'].slice(0,0,3,3).inverse().transpose();
 
 					webgl_context.uniform1i(webgl_shader_program.use_lighting_uniform, use_lighting);
 					webgl_context.uniform1i(webgl_shader_program.useTexturingUniform, use_texturing);
-					webgl_context.uniformMatrix4fv(webgl_shader_program.pMatrixUniform, false, p.transpose().data);
-					webgl_context.uniformMatrix4fv(webgl_shader_program.mvMatrixUniform, false, mv.transpose().data);
-					webgl_context.uniformMatrix3fv(webgl_shader_program.nMatrixUniform, false, n.transpose().data);
+					webgl_context.uniformMatrix4fv(webgl_shader_program.pMatrixUniform, false, state['transformations']['perspective'].transpose().data);
+					webgl_context.uniformMatrix4fv(webgl_shader_program.mvMatrixUniform, false, state['transformations']['modelview'].transpose().data);
+					webgl_context.uniformMatrix3fv(webgl_shader_program.nMatrixUniform, false, state['transformations']['normal'].transpose().data);
 				}
 
 				webgl_context.viewport(0, 0, webgl_context.viewportWidth, webgl_context.viewportHeight);
@@ -891,64 +897,10 @@ $(document).ready(function() {
 				webgl_context.uniform2fv(webgl_shader_program.texture_size_uniform, 
 					[texture_atlas.image.width,texture_atlas.image.height]);
 
-				setMatrixUniforms(pMatrix,mvMatrix);
+				setMatrixUniforms();
 			}
 		}
-
-		var leaf = bsp.find_leaf(player.viewpoint);
-		
-		var visible_leaves;
-		if(visilist) {
-			visible_leaves = [leaf];
-			var list_index = leaf.visilist_start;
-			for(var i=1;i<level['leaves'].length && level['leaves'][i]['visilist start']>=0;list_index++) {
-				if(visilist[list_index] == 0) {
-					i += 8*visilist[list_index+1];
-					list_index++;
-				} else {
-					for(var j=0;j<8;j++,i++) {
-						if(((visilist[list_index] >> j) & 1) != 0) {
-							var leaf = level['leaves'][i].object;
-							visible_leaves.push(leaf);
-						}
-					}
-				}
-			}
-		} else {
-			visible_leaves = leaves;
-		}
-		// Find the children of the common ancestor of two leaves. The return value is an array
-		// where the first value is an ancestor of a and the second is an ancestor of b.
-		function common_ancestor(a,b) {
-			var a_ancestor = a;
-			var b_ancestor = b;
-			while(a_ancestor.depth > b_ancestor.depth) {
-				a_ancestor = a_ancestor.parent_node;
-			}
-			while(b_ancestor.depth > a_ancestor.depth) {
-				b_ancestor = b_ancestor.parent_node;
-			}
-			while(a_ancestor.parent_node != null && a_ancestor.parent_node != b_ancestor.parent_node) {
-				a_ancestor = a_ancestor.parent_node;
-				b_ancestor = b_ancestor.parent_node;
-			}
-			var ancestor = a_ancestor.parent_node;
-			var left_side = ancestor.child_nodes[0];
-			if(left_side == null) {
-				left_side = ancestor.child_leaves[0];
-			}
-			return {'ancestor': ancestor,'side': left_side == a_ancestor ? 0 : 1 };
-		}
-		// Sort the leaves.
-		visible_leaves.sort(function (a,b) {
-			var ancestor_information = common_ancestor(a,b);
-			var ancestor = ancestor_information['ancestor'];
-			var side = ancestor.plane.normal_equation(player.viewpoint) > 0 ? 0 : 1;
-			return (side == ancestor_information['side']) ? -1 : 1;
-		});
-		visible_leaves.reverse();
-
-		function render_leaves(leaves) {
+		function setup_indexes(leaves) {
 			var indexes = [];
 			var primitive_key = use_wireframe ? 'edges' : 'triangles';
 			leaves.forEach(function (leaf) {
@@ -970,11 +922,9 @@ $(document).ready(function() {
 					}
 				});
 			});
-			//indexes =[33399, 33402, 33403];
-			//indexes=[[29487, 29488, 29490, 29491]];
-			//console.log('indexes length: ' + indexes.length);
-
-			setup_scene();
+			return indexes;
+		}
+		function render_leaves(indexes) {
 			if(use_webgl && webgl_context) {
 				var flattened_indexes = [].concat.apply([],indexes);
 
@@ -997,7 +947,7 @@ $(document).ready(function() {
 			if(use_canvas && canvas_context) {
 				//var mat = mat4.create();
 				//mat4.multiply(pMatrix,mvMatrix,mat);
-				var mat = pMatrix.multiply(mvMatrix);
+				var mat = state['transformations']['perspective'].multiply(state['transformations']['modelview']);
 
 				var cx = canvas_element.width/2;
 				var cy = canvas_element.height/2;
@@ -1061,69 +1011,118 @@ $(document).ready(function() {
 
 					//console.log('(r,g,b) : ' + color[0] + ',' + color[1] + ',' + color[2]);
 							if(projected.length<3) {
-								//console.log(projected);
+									  //console.log(projected);
 							} else {
-							canvas_context.fillStyle = rgb(color);
-							canvas_context.strokeStyle = rgb(color);
-							canvas_context.beginPath();
+									  canvas_context.fillStyle = rgb(color);
+									  canvas_context.strokeStyle = rgb(color);
+									  canvas_context.beginPath();
 
 
-							for(var j=0;j<projected.length;j++) {
-								var pos = to_screen(projected[j].coord);
-								if(j==0) {
-									canvas_context.moveTo(pos[0],pos[1]);
-								} else {
-									canvas_context.lineTo(pos[0],pos[1]);
-								}
-							}
+									  for(var j=0;j<projected.length;j++) {
+												 var pos = to_screen(projected[j].coord);
+												 if(j==0) {
+															canvas_context.moveTo(pos[0],pos[1]);
+												 } else {
+															canvas_context.lineTo(pos[0],pos[1]);
+												 }
+									  }
 
 
-								canvas_context.closePath();
-								if(use_wireframe) {
-									canvas_context.stroke();
-								} else {
-									canvas_context.fill();
-								}
+									  canvas_context.closePath();
+									  if(use_wireframe) {
+												 canvas_context.stroke();
+									  } else {
+												 canvas_context.fill();
+									  }
 							}
 						}
 					}
 				};
 
 				var from_indexes = function (triangle_index) {
-					//var vertices = indexes.slice(triangle_index,triangle_index+3).
-					var vertices = triangle_index.map(
-					function (index) {
-						return Vector.create(webgl_vertices[index]); 
-					});
-					//var color = webgl_normals[triangle_index[0]].map(function (x) { return (x+1)/2; });
-					var color = webgl_colors[triangle_index[0]];
+						  //var vertices = indexes.slice(triangle_index,triangle_index+3).
+						  var vertices = triangle_index.map(
+												function (index) {
+														  return Vector.create(webgl_vertices[index]); 
+												});
+						  //var color = webgl_normals[triangle_index[0]].map(function (x) { return (x+1)/2; });
+						  var color = webgl_colors[triangle_index[0]];
 
-					draw_polygon(vertices,color);
+						  draw_polygon(vertices,color);
 				}
 
 				if(use_canvas && canvas_context){
-					canvas_context.clearRect(0,0,canvas.width,canvas.height);
+						  canvas_context.clearRect(0,0,canvas.width,canvas.height);
 				}
 				indexes.forEach(from_indexes);
 			}
 		}
 
-		/*var dimness = 0;
-		visible_leaves.forEach(function (leaf) {
-			if(leaf.type != -1) {
-				webgl_context.uniform4fv(webgl_shader_program.dummyUniform, leaf.color);
-				render_leaves([leaf]);
+		function setup_pvs(leaf) {
+			var visible_leaves;
+			if(visilist) {
+				var list_index = leaf.visilist_start;
+				visible_leaves = [leaf];
+				for(var i=1;i<level['leaves'].length && level['leaves'][i]['visilist start']>=0;list_index++) {
+					if(visilist[list_index] == 0) {
+						i += 8*visilist[list_index+1];
+						list_index++;
+					} else {
+						for(var j=0;j<8;j++,i++) {
+							if(((visilist[list_index] >> j) & 1) != 0) {
+								var leaf = level['leaves'][i].object;
+								visible_leaves.push(leaf);
+							}
+						}
+					}
+				}
+			} else {
+				visible_leaves = leaves;
 			}
-		});*/
-		render_leaves(visible_leaves);
-
-		/*bsp.dfs(position, function(leaf) {
-			if(leaf.type == -5) {
-			render_leaves([leaf]);
+		// Find the children of the common ancestor of two leaves. The return value is an array
+		// where the first value is an ancestor of a and the second is an ancestor of b.
+			function common_ancestor(a,b) {
+				var a_ancestor = a;
+				var b_ancestor = b;
+				while(a_ancestor.depth > b_ancestor.depth) {
+					a_ancestor = a_ancestor.parent_node;
+				}
+				while(b_ancestor.depth > a_ancestor.depth) {
+					b_ancestor = b_ancestor.parent_node;
+				}
+				while(a_ancestor.parent_node != null && a_ancestor.parent_node != b_ancestor.parent_node) {
+					a_ancestor = a_ancestor.parent_node;
+					b_ancestor = b_ancestor.parent_node;
+				}
+				var ancestor = a_ancestor.parent_node;
+				var left_side = ancestor.child_nodes[0];
+				if(left_side == null) {
+					left_side = ancestor.child_leaves[0];
+				}
+				return {'ancestor': ancestor,'side': left_side == a_ancestor ? 0 : 1 };
 			}
-		},null,true);*/
+			// Sort the leaves.
+			visible_leaves.sort(function (a,b) {
+				var ancestor_information = common_ancestor(a,b);
+				var ancestor = ancestor_information['ancestor'];
+				var side = ancestor.plane.normal_equation(state['player'].viewpoint) > 0 ? 0 : 1;
+				return (side == ancestor_information['side']) ? -1 : 1;
+			});
+			visible_leaves.reverse();
+	
+			return visible_leaves;
+		}
 
-		//console.log('draws: ' + log_draw_count + '; traversals ' + log_traverse_count);
+		var leaf = bsp.find_leaf(state['player'].viewpoint);
+
+		setup_scene();
+		if(leaf != state['rendering']['leaf']) {
+			var visible_leaves = setup_pvs(leaf);
+			state['rendering']['indexes'] = setup_indexes(visible_leaves);
+			state['rendering']['leaf'] = leaf;
+		}
+		render_leaves(state['rendering']['indexes']);
+
 	};//}}}
 
 
@@ -1135,8 +1134,8 @@ $(document).ready(function() {
 
 	var bsp = null;
 	var faces = null;
-	var leaves = null;
 	var visilist = null;
+	var leaves = null;
 	level = null;
 	texture_indexes = null;
 
@@ -1166,8 +1165,15 @@ $(document).ready(function() {
 					dataType: 'json'});
 
 
-		bsp = new Node(level['nodes'][0],level);
+		var root_index = 0;
+		if(level['root node']) {
+			root_index = level['root node'];
+		}
+		bsp = new Node(level['nodes'][root_index],level);
+
 		//leaves = level['leaves'].map(function (definition) { return definition.object; });
+
+		leaves = bsp.leaves();
 
 		webgl_vertices = [];
 		webgl_normals = [];
@@ -1175,12 +1181,6 @@ $(document).ready(function() {
 		webgl_texture_coordinate = [];
 		webgl_texture_range = [];
 
-		/*leaves = level['leaves'].map(function (definition) {
-			return new Leaf(definition,level);
-		});*/
-
-
-		//s = dotproduct(Vertex,vectorS) + distS;    
 		level['faces'].forEach(
 			function (definition) {
 				definition.object = new Face(definition,level,
@@ -1275,20 +1275,20 @@ $(document).ready(function() {
 		return player;
 	}
 
-	var player = select_map();
+	state['player'] = select_map();
 	function redraw2() {
-	if($('#canvas_option').prop('checked')) {
-		use_webgl = false;
-		use_canvas = !use_webgl;
-		redraw();
-	}
+		if($('#canvas_option').prop('checked')) {
+			use_webgl = false;
+			use_canvas = !use_webgl;
+			redraw();
+		}
 
-	if($('#webgl_option').prop('checked')) {
-		use_webgl = true;
-		use_canvas = !use_webgl;
-		redraw();
-		use_canvas = true;
-	}
+		if($('#webgl_option').prop('checked')) {
+			use_webgl = true;
+			use_canvas = !use_webgl;
+			redraw();
+			use_canvas = true;
+		}
 	}
 
 	var lastTime = 0;
@@ -1306,7 +1306,7 @@ $(document).ready(function() {
 
 // Gravity
 			if(!use_noclip) {
-				player.move_up(-config['physics']['gravity']*elapsed,test_intersection);
+				state['player'].move_up(-config['physics']['gravity']*elapsed,test_intersection);
 			}
 		}
 		lastTime = timeNow;
@@ -1345,7 +1345,7 @@ $(document).ready(function() {
 		use_wireframe = $('#wireframe_option').prop('checked');
 	});
 	$('#map_option').change(function() {
-		player = select_map();
+		state['player'] = select_map();
 	});
 // Return true if there is no intersection with the map.
 	function test_intersection(previous, viewpoint) {
@@ -1413,35 +1413,35 @@ $(document).ready(function() {
 			switch(binding['binding']) {
 				//{{{
 				case 'move left': {
-						player.move_left(config['movement']['strafe distance'], test_intersection);
+						state['player'].move_left(config['movement']['strafe distance'], test_intersection);
 				}
 				break;
 				case 'move right': {
-						player.move_left(-config['movement']['strafe distance'], test_intersection);
+						state['player'].move_left(-config['movement']['strafe distance'], test_intersection);
 				}
 				break;
 				case 'move up': {
-						player.move_up(config['movement']['vertical distance'], test_intersection);
+						state['player'].move_up(config['movement']['vertical distance'], test_intersection);
 				}
 				break;
 				case 'move down': {
-						player.move_up(-config['movement']['vertical distance'], test_intersection);
+						state['player'].move_up(-config['movement']['vertical distance'], test_intersection);
 				}
 				break;
 				case 'move forward': {
-						player.move_forward(config['movement']['forward distance'], test_intersection);
+						state['player'].move_forward(config['movement']['forward distance'], test_intersection);
 				}
 				break;
 				case 'move backward': {
-						player.move_forward(-config['movement']['backward distance'], test_intersection);
+						state['player'].move_forward(-config['movement']['backward distance'], test_intersection);
 				}
 				break;
 				case 'turn left': {
-						player.turn_left(config['movement']['turn angle'] * 2 * Math.PI / 360);
+						state['player'].turn_left(config['movement']['turn angle'] * 2 * Math.PI / 360);
 				}
 				break;
 				case 'turn right': {
-						player.turn_left(-config['movement']['turn angle'] * 2 * Math.PI / 360);
+						state['player'].turn_left(-config['movement']['turn angle'] * 2 * Math.PI / 360);
 				}
 				break;
 				//}}}
