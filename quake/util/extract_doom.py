@@ -3,6 +3,13 @@
 import struct
 import re
 import json
+import clnum
+from clnum import *
+
+import sys
+import pygame
+import time
+
 
 def strip_null(s):
 	return s.split('\0',1)[0]
@@ -10,14 +17,23 @@ def strip_null(s):
 level_lumps = ['THINGS','LINEDEFS','SIDEDEFS','VERTEXES','SEGS','SSECTORS','NODES','SECTORS','REJECT','BLOCKMAP']
 levels = {}
 
-def process_level_lump(name,filepos,wad_file):
+def process_level_lump(name,filepos,wad_file,wadtype):
 	wad_file.seek(filepos)
 	lumps = []
 	if name == 'THINGS':
+		if wadtype == 'doom':
+			THING_SIZE = 2*5
+		elif wadtype == 'hexen':
+			THING_SIZE=2*7+6
+
 		# short[5] : x,y,angle,type,flags
-		THING_SIZE = 2*5
 		for j in range(size/THING_SIZE):
-			x,y,angle,thing_type,flags = struct.unpack('5h',wad_file.read(THING_SIZE))
+			if wadtype == 'doom':
+				x,y,angle,thing_type,flags = struct.unpack('5h',wad_file.read(THING_SIZE))
+			elif wadtype == 'hexen':
+				thing_id,x,y,start_height,angle,thing_type,flags,	\
+				action_special_args = struct.unpack('7h6s',wad_file.read(THING_SIZE))
+
 			lump = {	'x': x,
 						'y': y,
 						'angle': angle,
@@ -28,15 +44,25 @@ def process_level_lump(name,filepos,wad_file):
 			lumps.append(lump)
 			#print x,y,angle,thing_type,flags
 	elif name == 'LINEDEFS':
+		if wadtype == 'doom':
+			LINEDEF_SIZE = 2*7
+		elif wadtype == 'hexen':
+			LINEDEF_SIZE=2*3+6+2*2
 		# short[7] : start vertex,end vertex,flags,special type,sector tag,right sidedef,left sidedef
-		LINEDEF_SIZE = 2*7
 		for j in range(size/LINEDEF_SIZE):
-			start,end,flags,special_type,sector,right_sidedef,left_sidedef = struct.unpack('7h',wad_file.read(LINEDEF_SIZE))
+			if wadtype == 'doom':
+				start,end,flags,special_type,args,			\
+				right_sidedef,left_sidedef = struct.unpack('7h',wad_file.read(LINEDEF_SIZE))
+			elif wadtype == 'hexen':
+				start,end,flags,		\
+				special_type,args,	\
+				right_sidedef,left_sidedef = struct.unpack('3hc5s2h',wad_file.read(LINEDEF_SIZE))
+
 			lump = {	'start vertex': start,
 						'end vertex': end,
 						'flags': flags,
 						'special type': special_type,
-						'sector': sector,
+						'args': args,
 						'right sidedef': right_sidedef,
 						'left sidedef': left_sidedef
 						}
@@ -51,6 +77,7 @@ def process_level_lump(name,filepos,wad_file):
 		SIDEDEF_SIZE = 2*2+8*3+2
 		for j in range(size/SIDEDEF_SIZE):
 			x,y,upper,lower,middle,sector = struct.unpack('2h8s8s8sh',wad_file.read(SIDEDEF_SIZE))
+
 			upper,lower,middle = map(strip_null,[upper,lower,middle])
 			lump = {	'x offset': x,
 						'y offset': y,
@@ -149,6 +176,146 @@ def process_level_lump(name,filepos,wad_file):
 		lumps.append(lump)
 	return lumps
 
+def rational(x):
+	return mpq(x,1)
+
+def select_node_child(node,right,level):
+	SSECTOR_MASK = 0x8000
+	if right:
+		index = node['right child']
+	else:
+		index = node['left child']
+	if index & SSECTOR_MASK != 0:
+		return (False,level['SSECTORS'][index & (SSECTOR_MASK-1)])
+	else:
+		return (True,level['NODES'][index])
+
+def draw_polygon(polygon,depth,bounds):
+	if len(polygon)==0:
+		return
+
+	extents = max(bounds[1][0]-bounds[0][0],bounds[1][1]-bounds[0][1])
+	scale_x = extents
+	scale_y = extents
+	pointlist = []
+	for current in polygon:
+		cx = float((current.elements[0]-bounds[0][0])/scale_x)*window_size+window_padding
+		cy = float(1-(current.elements[1]-bounds[0][1])/scale_y)*window_size+window_padding
+		pointlist.append((cx,cy))
+
+	color_level = 100
+	#print polygon
+	pygame.draw.lines(window,(((depth&1)^1)*color_level,0,(depth&1)*color_level),True,pointlist)
+	#pygame.draw.polygon(window,(((depth&1)^1)*color_level,0,(depth&1)*color_level),pointlist)
+	#time.sleep(50/1000.0)
+	pygame.display.flip()
+
+def draw_subsector(subsector,bounds):
+	extents = max(bounds[1][0]-bounds[0][0],bounds[1][1]-bounds[0][1])
+	scale_x = extents
+	scale_y = extents
+	for seg in map(lambda index: level['SEGS'][index+subsector['seg offset']],range(subsector['seg count'])):
+		vertexes = map(lambda key: level['VERTEXES'][seg[key]]['vector'],['start vertex','end vertex'])
+		px = float((vertexes[0].elements[0]-bounds[0][0])/scale_x)*window_size+window_padding
+		py = float(1-(vertexes[0].elements[1]-bounds[0][1])/scale_y)*window_size+window_padding
+		cx = float((vertexes[1].elements[0]-bounds[0][0])/scale_x)*window_size+window_padding
+		cy = float(1-(vertexes[1].elements[1]-bounds[0][1])/scale_y)*window_size+window_padding
+		pygame.draw.line(window,(0,255,0),(px,py),(cx,cy))
+	#time.sleep(50/1000.0)
+	pygame.display.flip()
+
+
+def normalize_level(level):
+	def make_node_plane(node):
+		x0 = node['partition line x']
+		y0 = node['partition line y']
+		x1 = node['partition line delta x']
+		y1 = node['partition line delta y']
+		v0 = Vector(map(rational,[x0,y0,0]))
+		v1 = Vector(map(rational,[x1,y1,0]))
+		return make_line(v1+v0,v0)
+
+	for node in level['NODES']:
+		node['parent'] = None
+
+	for node in level['NODES']:
+		select_node_child(node,True,level)[1]['parent'] = node
+		select_node_child(node,False,level)[1]['parent'] = node
+
+		node['plane'] = make_node_plane(node)
+
+	for vertex in level['VERTEXES']:
+		elements = map(lambda coord: rational(vertex[coord]),['x','y'])
+		elements.append(rational(0))
+		vertex['vector'] = Vector(elements)
+
+	for subsector in level['SSECTORS']:
+		seg = level['SEGS'][subsector['seg offset']]
+		linedef = level['LINEDEFS'][seg['linedef']]
+		if seg['direction'] == 0:
+			sidedef = level['SIDEDEFS'][linedef['right sidedef']]
+		else:
+			sidedef = level['SIDEDEFS'][linedef['left sidedef']]
+		sector = level['SIDEDEFS'][sidedef['sector']]
+		seg['sector'] = sector
+
+	def carve_subsector(polygon, subsector):
+		result = polygon
+		for seg in map(lambda index: level['SEGS'][index+subsector['seg offset']],range(subsector['seg count'])):
+			vertexes = map(lambda key: level['VERTEXES'][seg[key]]['vector'],['start vertex','end vertex'])
+			splitter = make_line(vertexes[1], vertexes[0])
+			(result,outside) = clip_polygon(result,splitter,rational(1))
+		return result
+	def split_polygon(node,depth,polygon):
+		#print polygon
+		(right_polygon,left_polygon) = clip_polygon(polygon,node['plane'],rational(1))
+		for (next_polygon,is_right) in zip([right_polygon,left_polygon],[True,False]):
+			(is_node,child) = select_node_child(node,is_right,level)
+			if is_node:
+				draw_polygon(next_polygon,depth+1,bounds)
+				split_polygon(child,depth+1,next_polygon)
+			else:
+				flat = carve_subsector(next_polygon,child)
+				child['polygon'] = flat
+				draw_polygon(flat,depth+1,bounds)
+
+	def draw_subsectors(node,depth):
+		for is_right in [True,False]:
+			(is_node,child) = select_node_child(node,is_right,level)
+			if is_node:
+				draw_subsectors(child,depth+1)
+			else:
+				draw_subsector(child,bounds)
+
+	pygame.init()
+
+	bounds = map(rational,[level['VERTEXES'][0]['x'],level['VERTEXES'][0]['y']])
+	bounds = [list(bounds),list(bounds)]
+	#print bounds[0]
+	#print min(bounds[0][0],bounds[0][1])
+	#print max(bounds[0][0],bounds[0][1])
+	for vertex in level['VERTEXES']:
+		x = rational(vertex['x'])
+		y = rational(vertex['y'])
+		#print x,y,bounds
+		#print x,bounds[0][0], min(x,bounds[0][0])
+
+		bounds[0][0] = min(bounds[0][0],x)
+		bounds[0][1] = min(bounds[0][1],y)
+		bounds[1][0] = max(bounds[1][0],x)
+		bounds[1][1] = max(bounds[1][1],y)
+
+	split_polygon(level['NODES'][-1],0,							\
+			map(Vector,													\
+				[[bounds[0][0],bounds[0][1],rational(0)],		\
+				[bounds[1][0],bounds[0][1],rational(0)],		\
+				[bounds[1][0],bounds[1][1],rational(0)],		\
+				[bounds[0][0],bounds[1][1],rational(0)]]))
+	draw_subsectors(level['NODES'][-1],0)
+
+	return level
+
+
 def gcd(a,b):
 	if abs(a)<abs(b):
 		(b,a) = (a,b)
@@ -159,28 +326,42 @@ def gcd(a,b):
 	return a
 
 class Rational:
-	def __init__(self, num, den=1)
-		self.__num = num
-		self.__den = den
+	def __init__(self, num, den=1):
+		self.num = num
+		self.den = den
 	def reduce(self):
-		g = gcd(self.__num,self.__den)
+		g = gcd(self.num,self.den)
 		if g != 0 and g != 1:
-			return Rational(self.__num/g,self.__den/g)
-		else
+			return Rational(self.num/g,self.den/g)
+		else:
 			return self
-
+	@staticmethod
+ 	def to_rational(a):
+		if type(a) != 'Rational':
+			return Rational(a)
+		else:
+			return a
 	def __binop(a,b,f):
-		return Rational(f(a.__num*b.__den,b.__num*a.__den),a.__den*b.__den).reduce()
-
+		return Rational(f(a.num*b.den,b.num*a.den),a.den*b.den).reduce()
 	def __add__(a,b):
 		return a.__binop(b,lambda x,y: x+y)
 	def __sub__(a,b):
 		return a.__binop(b,lambda x,y: x-y)
 	def __mul__(a,b):
-		return Rational(a.__num*b.__num,a.__den*b.__den).reduce()
+		return Rational(a.num*b.num,a.den*b.den).reduce()
 	def __div__(a,b):
-		return Rational(a.__num*b.__den,a.__den*b.__num).reduce()
-		
+		return Rational(a.num*b.den,a.den*b.num).reduce()
+	def __neg__(a):
+		return Rational(-a.num,a.den)
+	def __str__(self):
+		if self.den !=1:
+			return str(self.num) + '/' + str(self.den)
+		else:
+			return str(self.num)
+ 	def __repr__(self):
+		return str(float(self.num)/float(self.den))
+	def __cmp__(a,b):
+ 		return cmp(a.num*b.den,b.num*a.den)
 
 class Vector:
 	def __init__(self, elements=[]):
@@ -191,141 +372,88 @@ class Vector:
 		z = a.elements[0]*b.elements[1]-a.elements[1]*b.elements[0]
 		return Vector([x,y,z])
 	def dot(a,b):
-		return sum(map(lambda (x,y):x*y,zip(a.elements,b.elements)))
-
-class Plane:
-	def __init__(self,normal,dist):
-		self.__normal = normal
-		self.__dist = dist
-
-class ProjVector:
-	def __init__(self, elements=[],projective=1):
-		self.elements = list(elements)
-		self.projective = projective
-	def __repr__(self):
-		return reduce(lambda acc,x: acc + str(x) + ':', self.elements,'[') + str(self.projective) + ']'
-
+		return reduce(lambda acc,x: acc+x,map(lambda (x,y):x*y,zip(a.elements,b.elements)),rational(0))
 	def __binop(a,b,f):
-		c = ProjVector()
-		c.elements = map(lambda (x,y): f (x*b.projective,y*a.projective), zip(a.elements,b.elements))
-		c.projective = a.projective*b.projective
-		return c
+		return Vector(map(lambda (x,y): f(x,y), zip(a.elements,b.elements)))
 	def __add__(a,b):
 		return a.__binop(b,lambda x,y: x+y)
 	def __sub__(a,b):
 		return a.__binop(b,lambda x,y: x-y)
+	def __str__(self):
+		return str(self.elements)
+	def __repr__(self):
+		return str(map(float,self.elements))
 	def __mul__(a,s):
-		c = ProjVector()
-		c.elements = map(lambda x: x*s,a.elements)
-		c.projective = a.projective
-		return c
-	def __div__(a,s):
-		c = ProjVector(a.elements)
-		c.projective = a.projective*s
-		return c
-	def reduce(self):
-		g = reduce(gcd,self.elements,self.projective)
-		if g!=0 and g!=1:
-			self.elements = map(lambda x: x/g,self.elements)
-			self.projective /= g
-		return self
-	def dimension(self):
-		return len(self.elements)
-	def dot(a,b):
-		c = ProjVector()
-		c.elements = [Vector(a.elements).dot(Vector(b.elements))]
-		c.projective = a.projective*b.projective
-		return c.reduce()
-	def normal_equation(a,b):
-		return reduce(lambda acc,(x,y):acc+x*y,zip(a.elements,b.elements),a.projective*b.projective)
+		return Vector(map(lambda x: x*s, a.elements))
 
-	def cross(a,b):
-		c = ProjVector()
-		c.elements = Vector(a.elements).cross(Vector(b.elements)).elements
-		c.projective = a.projective*b.projective
-		return c.reduce()
-	@staticmethod
-	def make_line_2d(end,start,up = None):
-		direction = end-start
-		up = ProjVector([0,0,1])
-		c = direction.cross(up)
-		#c.projective = -c.projective
-		d = c.dot(start)
+class Plane:
+	def __init__(self,normal,dist):
+		self.normal = normal
+		self.dist = dist
+	def normal_equation(self,vector):
+		return self.normal.dot(vector) - self.dist
+	def __str__(self):
+		return '{' + str(self.normal) + '.p=' +  str(self.dist)+ '}'
+	#def __repr__(self):
+	#	return str({ 'normal': self.normal, 'dist': float(self.dist) })
 
-		c.projective *= d.projective
-		c.projective -= d.elements[0]
-		return c.reduce()
-	@staticmethod
-	def zero(dimension):
-		return ProjVector([0 for x in range(dimension)])
+def make_line(end,start,up=Vector(map(rational,[0,0,1]))):
+	normal = (end-start).cross(up)
+	dist  = normal.dot(end)
+	return Plane(normal,dist)
 
-print u,v,x
-print x.normal_equation(u),x.normal_equation(v),x.normal_equation((u-v)*10230+v)
-print x.dot(u),x.dot(v),x.dot((u-v)*10230+v)
+def mix(a,b,t):
+	return a+(b-a)*t
 
-def mix_projective(a,b,t):
-	# a*(1-t)+b*t => [a.xyz*(t.w-t.x)/(a.w*t.w) + b.xyz*t.x/(b.w*t.w),1]
-	# [a.xyz*(t.w-t.x)*b.w + b.xyz*t.x*a.w,a.w*b.w*t.w]
-	c0 = map(lambda x: x*b[-1]*(t[-1]-t[0]),a[:-1])
-	c1 = map(lambda x: x*a[-1]*t[0],b[:-1])
-	c = map(lambda (x,y): x+y,zip(c0,c1))
-	c.append(a[-1]*b[-1]*t[-1])
-	return reduce_projective(c)
+def intersect_segment(splitter,end,start):
+	# (p-p0).n = 0
+	# p = (1-t)*s+t*e
+	# ((1-t)*s+t*e-p0).n = 0
+	# (s-p0).n+t*(e-s).n = 0
+	# t = - (s-p0).n / (e-s).n 
 
-def determinant_2d(x,y):
-	return x[0]*y[1]-y[0]*x[1]
-
-def intersect_2d_projective(line0,line1):
-	w = determinant_2d(line0,line1)
-	x = determinant_2d([line0[2],line0[1]],[line1[2],line1[1]])
-	y = determinant_2d([line0[0],line0[2]],[line1[0],line1[2]])
-	return reduce_projective([x,y,w])
-
-def intersect_segment(normal,end,start):
-	# (p-p0).n = 0 => p.n =0
-	# p = (1-t)*s+t*e -> p = s+t*(e-s)
-	# ((1-t)*s+t*e-p0).n = 0 -> ((s-p0)-t*(e-s)).n = 0  => ((1-t)*s+t*e).n = 0 -> s.n+t*(e-s).n=0 -> t = -s.n/(e-s).n
-	# t = ( p0.n - s.n ) / ((e-s).n)
-	direction = subtract_vectors_projective(end,start)
+	direction = end-start
 	#direction = map(lambda x:x/direction[-1],direction)
 	#normal = map(lambda x:x/normal[-1],normal)
 	#print direction,end,start,normal
-	denominator = dot_product(direction[:-1],normal[:-1])
-	if denominator != 0:
+	denominator = splitter.normal.dot(direction)
+	if denominator != rational(0):
 		#t = map(lambda (x,y): -x*y,zip(dot_product_projective(normal,start),denominator))
-		t = [-dot_product(normal,start)*direction[-1],denominator]
-		if denominator < 0:
-			t = map(lambda x: -x, t)
-		#t = map(lambda x:x/t[-1],t)
-		vector = mix_projective(start,end,t)
-			
+		t = -splitter.normal_equation(start)/denominator
+		vector = mix(start,end,t)
 		return (t,vector)
 	else:
 		return None
 
-def clip_polygon(vertexes,splitter):
+def clip_polygon(vertexes,splitter,side):
 	if len(vertexes) == 0:
-		return vertexes
-	result = []
+		return (vertexes,vertexes)
+	right = []
+	left = []
 	previous = vertexes[-1]
-	for current in vertexes:
-		#print current,previous
-		#print dot_product(splitter,current),dot_product(splitter,previous)
 
-		if (dot_product(splitter,current)>=0) != (dot_product(splitter,previous)>=0):
-			#try:
+	previous_dot = splitter.normal_equation(previous)*side
+	for current in vertexes:
+		current_dot = splitter.normal_equation(current) * side
+		if (current_dot >= rational(0)) != (previous_dot >= rational(0)):
 			intersection_result = intersect_segment(splitter,current,previous)
 			if intersection_result:
 				(t,intersection) = intersection_result
-				if 0 <=t[0] and t[0]<=t[1] and dot_product(splitter,intersection)>=0:
-					result.append(intersection)
-			#except TypeError:
-			#	print current,previous,splitter
+				intersection_dot = splitter.normal_equation(intersection)*side
+				#print t,intersection_dot
+				if rational(0) <= t and t <= rational(1): # and intersection_dot>=rational(0):
+					if intersection_dot >= rational(0):
+						right.append(intersection)
+					if intersection_dot <= rational(0):
+						left.append(intersection)
 
-		if dot_product(splitter,current)>=0:
-			result.append(current)
-		previous = current
-	return result
+		if current_dot >= rational(0):
+			right.append(current)
+		if current_dot <= rational(0):
+			left.append(current)
+
+		(previous_dot,previous) = (current_dot,current)
+	return (right,left)
 
 def to_quake(level):
 	def parse_reject(sector_count,raw):
@@ -346,15 +474,9 @@ def to_quake(level):
 		else:
 			return items.index(item)
 			
-	def augment_vertex_projective(vertex,z):
-		vector = vertex[:-1]
-		vector.append(z*vertex[-1])
-		vector.append(vertex[-1])
-		return vector
-
 	def augment_vertex(index,z):
 		vertex = level['VERTEXES'][index]
-		return [vertex['x'],vertex['y'],z]
+		return Vector(map(rational,[vertex['x'],vertex['y'],z]))
 
 	def cross_product(vectors):
 		result = [	\
@@ -375,10 +497,14 @@ def to_quake(level):
 		#if seg['direction'] != 0:
 		#	vertex_indexes.reverse()
 
-		vertex0 = vertexes[vertex_indexes[0]]
-		normal = cross_product(map(lambda i: subtract_vectors(vertexes[i],vertex0),vertex_indexes[1:3]))
-		dist = dot_product(normal,vertex0)
-		return { 'plane id': find_item(planes, {'normal':normal, 'dist': dist}),
+		
+		vertexes = map(lambda index: vertexes[index], vertex_indexes[:3])
+
+		#normal = cross_product(map(lambda i: subtract_vectors(vertexes[i],vertex0),vertex_indexes[1:3]))
+		#dist = dot_product(normal,vertex0)
+		normal = (vertexes[1]-vertexes[0]).cross(vertexes[2]-vertexes[0])
+		dist = normal.dot(vertexes[0])
+		return { 'plane id': find_item(planes, Plane(normal, dist)),
 					'texture index': 0,
 					'vertices index': vertex_indexes,
 					'front side': True
@@ -441,15 +567,13 @@ def to_quake(level):
 			children_nodes[1] = node['left child']
 			level['NODES'][children_nodes[1]]['parent'] = node
 
-		# The normal points toward the right.
-		normal = [	node['partition line delta y'],	\
-						-node['partition line delta x'],	\
-						0 ]
-		dist = dot_product(normal, [node['partition line x'], node['partition line y'],0])
-		#print dist-dot_product(normal, [node['partition line x']+node['partition line delta x'], node['partition line y']+node['partition line delta y'],0])
-		
+		partition_line_vertex0 = Vector(map(rational,[node['partition line x'], node['partition line y'],0]))
+		partition_line_vertex1 = partition_line_vertex0 + \
+				Vector(map(rational,[node['partition line delta x'], node['partition line delta y'],0]))
+		plane = make_line(partition_line_vertex1, partition_line_vertex0)
+
 		#print dist,normal
-		plane_id = find_item(planes, {'normal': normal, 'dist': dist})
+		plane_id = find_item(planes, plane)
 
 		node['plane'] = planes[plane_id]
 		nodes.append({	'plane id': plane_id,
@@ -471,9 +595,10 @@ def to_quake(level):
 				for i in range(ssec['seg count']):
 					seg = level['SEGS'][ssec['seg offset']+i]
 					t = level['VERTEXES'][seg['start vertex']]
-					vec = [t['x'],t['y'],0]
-					dots.append(-(2*k-1)*(dot_product(plane['normal'],vec)-plane['dist']))
-				#print k,2*k-1,dots
+					vec = Vector(map(rational,[t['x'],t['y'],0]))
+					#print plane,vec
+					dots.append(-rational(2*k-1)*plane.normal_equation(vec))
+				print 1-2*k,dots
 
 	# SSECTORS <-> 'leaves'
 	# 'face indexes','visilist start','type'
@@ -488,14 +613,16 @@ def to_quake(level):
 		sector = level['SECTORS'][sidedef['sector']]
 		return sector
 
-	def to_vector_projective(v):
-		return [v['x'],v['y'],0,1]
+	def vertex_to_vector(v):
+		return Vector(map(rational,[v['x'],v['y'],0]))
 
 	def leaf_vertexes(ssector):
-		polygon = [		[bounds[0][0],bounds[1][0],0,1],	\
-							[bounds[0][1],bounds[1][0],0,1],	\
-							[bounds[0][1],bounds[1][1],0,1],	\
-							[bounds[0][0],bounds[1][1],0,1]]
+		polygon =map(Vector,										\
+							[[bounds[0][0],bounds[1][0],rational(0)],	\
+							[bounds[0][1],bounds[1][0],rational(0)],	\
+							[bounds[0][1],bounds[1][1],rational(0)],	\
+							[bounds[0][0],bounds[1][1],rational(0)]])
+
 		#print 'bound:\t' + str(polygon)
 		# Only maintain the right side of the clipping planes.
 
@@ -503,53 +630,49 @@ def to_quake(level):
 		node = ssector['parent']
 		while node != None:
 			if node['right child']&0x7fff == previous['index']:
-				side = 1
+				side = rational(1)
 			else:
-				side = -1
-			side = -side
-			normal = list(node['plane']['normal'])
-			normal.append(-node['plane']['dist'])
-			normal = reduce_projective(map(lambda x: x*side,normal))
+				side = rational(-1)
 
-			#print node['partition line delta x'],node['partition line delta y']
-			#print normal
-			#print 'polygon:\t' + str(polygon) + ',' + str(normal)
-			polygon = clip_polygon(polygon,normal)
-
+			#print node['plane']
+			#print polygon,node['plane']
+			#print map(node['plane'].normal_equation, polygon)
+			polygon = clip_polygon(polygon,node['plane'],side)
 			previous = node
 			node = node['parent']
 			#print 'side:\t' + str(side)
 
 		for seg_index in range(seg_first,seg_count+seg_first):
+			side = rational(1)
 			seg = level['SEGS'][seg_index]
-			vertex0 = to_vector_projective(level['VERTEXES'][seg['start vertex']])
-			vertex1 = to_vector_projective(level['VERTEXES'][seg['end vertex']])
-			splitter = reduce_projective(make_line_projective(vertex1,vertex0))
+			vertex0 = vertex_to_vector(level['VERTEXES'][seg['start vertex']])
+			vertex1 = vertex_to_vector(level['VERTEXES'][seg['end vertex']])
+			splitter = make_line(vertex0, vertex1)
 			#print 'polygon:\t' + str(polygon) + ',' + str(splitter)
-			polygon = clip_polygon(polygon,splitter)
+			#print polygon,splitter
+			#print map(splitter.normal_equation, polygon)
+			polygon = clip_polygon(polygon,splitter,side)
 
 		#print 'clipped:\t' + str(polygon)
 
 		return polygon
 
-	bounds = to_vector_projective(level['VERTEXES'][0])
+	bounds = map(rational,[level['VERTEXES'][0]['x'],level['VERTEXES'][0]['y']])
 	#bounds = [[2**32,2**32,1],[-2**32,-2**32,1]]
 	bounds = [bounds,bounds]
 	for vertex in level['VERTEXES']:
-		if vertex['x'] < bounds[0][0]:
-			bounds[0][0] = vertex['x']
-		if vertex['x'] > bounds[0][1]:
-			bounds[0][1] = vertex['x']
-		if vertex['y'] < bounds[1][0]:
-			bounds[1][0] = vertex['y']
-		if vertex['y'] > bounds[1][1]:
-			bounds[1][1] = vertex['y']
-
+		x = rational(vertex['x'])
+		y = rational(vertex['y'])
+		bounds[0][0] = min(x,bounds[0][0])
+		bounds[0][1] = max(x,bounds[0][1])
+		bounds[1][0] = min(y,bounds[1][0])
+		bounds[1][1] = max(y,bounds[1][1])
 		
 	leaves = []
 	vertexes = []
 	faces = []
 	for ssector in level['SSECTORS']:
+		print ssector['index'],len(level['SSECTORS'])
 		seg_count = ssector['seg count']
 		seg_first = ssector['seg offset']
 		sector = sector_from_ssector(ssector)
@@ -571,22 +694,23 @@ def to_quake(level):
 
 		floor_vertex_indexes = []
 		for vertex in floor_vertexes:
-			vertex[2] = sector['floor height']*vertex[-1]
+			vertex.elements[2] = rational(sector['floor height'])
 			#print vertex
 			floor_vertex_indexes.append(find_item(vertexes,vertex))
 
+
 		ceiling_vertex_indexes = []
 		for vertex in ceiling_vertexes:
-			vertex[2] = sector['ceiling height']*vertex[-1]
+			vertex.elements[2] = rational(sector['ceiling height'])
 			ceiling_vertex_indexes.append(find_item(vertexes,vertex))
 
 # Make the ceiling and floor faces.
-		floor_face = {	'plane id': find_item(planes,{ 'normal': [0,0,1],'dist': sector['floor height']}),
+		floor_face = {	'plane id': find_item(planes,Plane(map(rational,[0,0,1]), rational(sector['floor height']))),
 							'texture index': 0,
 							'vertices index': floor_vertex_indexes,
 							'front side': True
 							}
-		ceiling_face = {	'plane id': find_item(planes, {'normal': [0,0,-1],'dist': -sector['ceiling height']}),
+		ceiling_face = {	'plane id': find_item(planes, Plane(map(rational,[0,0,-1]),rational(-sector['ceiling height']))),
 								'texture index': 0,
 								'vertices index': ceiling_vertex_indexes,
 								'front side': True
@@ -606,11 +730,10 @@ def to_quake(level):
 				};
 		leaves.append(leaf)
 
+	for node in level['NODES']:
+		del node['plane']
 	def project_down(v):
-		if len(v)>3:
-			return map(lambda x: (1.0*x)/v[-1],v[:3])
-		else:
-			return v
+		return map(lambda x: float(x), v.elements)
 
 	vertexes = map(project_down, vertexes)
 	return {	'nodes': nodes,
@@ -629,6 +752,9 @@ with open('doom.wad','r') as wad_file:
 	wad_header = wad_file.read(HEADER_SIZE)
 	identification,numlumps,infotableofs = struct.unpack('4sII',wad_header)
 
+	wadtype = 'doom'
+	#wadtype = 'hexen'
+
 	print identification
 	print numlumps
 	print infotableofs
@@ -641,17 +767,21 @@ with open('doom.wad','r') as wad_file:
 
 		name = strip_null(name)
 
-		if size == 0 and not mapnames.match(name) is None:
+		#print name,size
+		if not mapnames.match(name) is None:
+			if size>0:
+				wad_file.seek(filepos)
+				print strip_null(wad_file.read(size))
+
 			processing_levels = True
 			level_name = name
 			levels[level_name] = {}
-			print level_name
 			continue
 
 		if processing_levels:
 			if level_lumps.count(name) > 0:
 				#print '\t' + name
-				levels[level_name][name] = process_level_lump(name,filepos,wad_file)
+				levels[level_name][name] = process_level_lump(name,filepos,wad_file,wadtype)
 			else:
 				processing_levels = False
 		#else:
@@ -666,14 +796,26 @@ with open('doom.wad','r') as wad_file:
 	#print clip_polygon(polygon,normal),polygon
 	#print normal
 
-	#for levelname in levels.keys():
-	#for levelname in ['E1M1']:
-	for levelname in []:
-		print levelname
+	window_size = 700
+	window_padding = 10
+	window = pygame.display.set_mode((window_size+2*window_padding,window_size+2*window_padding))
+	levelnames = levels.keys()
+	levelnames.sort()
+	for levelname in levelnames:
+	#for levelname in ['MAP31']:
+	#for levelname in []:
+		window.fill((0,0,0))
+		quake = {}
 		level = levels[levelname]
+		print levelname
+		normalize_level(level)['VERTEXES']
+		time.sleep(5)
+		#for x in normalize_level(level)['VERTEXES']:
+		#	print x
+
 		#thingname = 'REJECT'
 		#sector_count = len(levels[levelname]['SECTORS'])
-		quake = to_quake(level)
+		#quake = to_quake(level)
 
 		player_origin = [0,0,0]
 		for thing in level['THINGS']:
@@ -699,3 +841,9 @@ with open('doom.wad','r') as wad_file:
 		#print('\t{}: {}'.format(thingname,parse_reject(sector_count,levels[levelname][thingname][0]['reject'])))
 		#for thingname in levels[levelname].keys():
 		#print('\t{}: {}'.format(thingname,levels[levelname][thingname]))
+	print 'Finished'
+	while True:
+		for event in pygame.event.get():
+			if event.type == pygame.QUIT:
+				sys.exit(0)
+
