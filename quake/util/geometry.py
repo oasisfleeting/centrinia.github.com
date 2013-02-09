@@ -40,18 +40,18 @@ class Vector:
 
 
 def convex_hull_2d(points):
-	# Return 1 if it is counterclockwise, -1 if it is clockwise, and 0 if it is degenerate
+	# Return -1 if it is counterclockwise, 1 if it is clockwise, and 0 if it is degenerate
 	def triangle_direction(vertexes):
 		v0 = vertexes[0] - vertexes[1]
 		v1 = vertexes[2] - vertexes[1]
-		return -cmp(v0.elements[0]*v1.elements[1]-v0.elements[1]*v1.elements[0],0)
+		return sign(v0.elements[0]*v1.elements[1]-v0.elements[1]*v1.elements[0])
 	def fan_binsearch(polygon, point):
 		low = 0
 		high = len(polygon)
 		while low+1<high:
 			mid = low+(high-low)/2
 			comparison = triangle_direction([polygon[0], polygon[mid], point])
-			if comparison>0:
+			if comparison<0:
 				low = mid
 			else:
 				high = mid
@@ -61,7 +61,7 @@ def convex_hull_2d(points):
 		if high == len(polygon):
 			return (high-1,0)
 
-		if triangle_direction([polygon[low], polygon[high], point])>0:
+		if triangle_direction([polygon[low], polygon[high], point])<0:
 			return None
 		else:
  			return (low,high)
@@ -87,41 +87,64 @@ def convex_hull_2d(points):
 			##return (normal.dot(sample_vector),normal.dot(normal))
 			#return float(normal.dot(sample_vector))/sqrt(float(normal.dot(normal)))
 
-		index = 0
-		print objective(polygon[index])
-		for i in range(0,len(polygon)):
-			mid_dot = objective(polygon[i])
-			midp1_dot = objective(polygon[index])
-			plt.text(float(polygon[i].elements[0]),float(polygon[i].elements[1]),str(objective(polygon[i])))
-			comparison = cmp(mid_dot,midp1_dot)
-			#comparison = cmp(sign(mid_dot[0])*mid_dot[0]**2*midp1_dot[1],sign(midp1_dot[0])*midp1_dot[0]**2*mid_dot[1])
-			if comparison > 0:
-				index = i
-			#midp1_dot = objective(polygon[0])
-			#comparison = cmp(sign(mid_dot[0])*mid_dot[0]**2*midp1_dot[1],sign(midp1_dot[0])*midp1_dot[0]**2*mid_dot[1])
-			#print comparison
-		return index
+		#index = 0
+		#print objective(polygon[index])
+		#for i in range(0,len(polygon)):
+		#	mid_dot = objective(polygon[i])
+		#	midp1_dot = objective(polygon[index])
+		#	comparison = cmp(mid_dot,midp1_dot)
+		#	if comparison > 0:
+		#		index = i
+		#return index
 
 
 		low = 0
-		high = len(polygon)-1
+		high = len(polygon)
 		while low+1<high:
 			mid = low + (high-low)/2
+			midm1_dot = objective(polygon[(mid-1)%len(polygon)])
 			mid_dot = objective(polygon[mid])
-			midp1_dot = objective(polygon[mid+1])
-			comparison = cmp(sign(mid_dot[0])*mid_dot[0]**2*midp1_dot[1],sign(midp1_dot[0])*midp1_dot[0]**2*mid_dot[1])
-			comparison = cmp(mid_dot,midp1_dot)
-			if comparison < 0:
+			midp1_dot = objective(polygon[(mid+1)%len(polygon)])
+			#comparison = cmp(sign(mid_dot[0])*mid_dot[0]**2*midp1_dot[1],sign(midp1_dot[0])*midp1_dot[0]**2*mid_dot[1])
+			#comparison = cmp(mid_dot-midp1_dot,0)
+			if cmp(midm1_dot,mid_dot) < 0 and cmp(mid_dot,midp1_dot)<0:
 				low = mid+1
-			elif comparison > 0:
+			elif cmp(midm1_dot,mid_dot) > 0 and cmp(mid_dot,midp1_dot)>0:
 				high = mid
+			elif cmp(midm1_dot,mid_dot) < 0 and cmp(mid_dot,midp1_dot)>0:
+				low = mid
+				high = mid
+				break
+			elif cmp(midm1_dot,mid_dot) > 0 and cmp(mid_dot,midp1_dot) < 0:
+				if objective(polygon[0])<objective(polygon[1]):
+					low = 0
+					high = mid
+				else:
+					low = mid+1
+					high = len(polygon)
+				print "valley"
+				print low,high
 			else:
 				low = mid
 				high = mid
+				print "unknown"
+				print low,high
+
+		low %= len(polygon)
+		#print '\nmax,objectives:'
+		#print str(objective(polygon[low]))
+		#print float(polygon[low].elements[0]),float(polygon[low].elements[1])
+
+		p = polygon[-1]
+		for c in polygon:
+			if objective(polygon[low])<objective(c):
+			  print '\t' + str(objective(c)) + ',' + str(objective(c)-objective(p))
+			  p = c
+			  #print '\t' + str(objective(p))
+
 		return low
 
 	def insert_point(polygon, point):
-		plt.clf()
 		bounds = fan_binsearch(polygon,point)
 		if bounds is None:
 			return
@@ -139,43 +162,55 @@ def convex_hull_2d(points):
 		#	normal.elements[1] = -normal.elements[1]
 		#	return cmp(normal.dot(p-start),0)
 
+		
+		if graphics:
+			plt.clf()
+
 		#left_extreme = -fan_bitonic_binsearch(polygon[::-1],point) % len(polygon)
 		#right_extreme = fan_bitonic_binsearch(polygon,point)
-		plt.title('left')
-		plt.plot([float(point.elements[0]),float(polygon[left].elements[0])],[float(point.elements[1]),float(polygon[left].elements[1])],'m')
-		plt.plot([float(point.elements[0]),float(polygon[right].elements[0])],[float(point.elements[1]),float(polygon[right].elements[1])],'c')
+			plt.title('left')
+			plt.plot([float(point.elements[0]),float(polygon[left].elements[0])],[float(point.elements[1]),float(polygon[left].elements[1])],'m')
+			plt.plot([float(point.elements[0]),float(polygon[right].elements[0])],[float(point.elements[1]),float(polygon[right].elements[1])],'c')
 		left_extreme = fan_bitonic_binsearch(polygon[left::-1]+polygon[:left:-1],point,-1)
 		left_extreme = (left - left_extreme) % len(polygon)
-		plt.plot([float(point.elements[0]),float(polygon[left_extreme].elements[0])],[float(point.elements[1]),float(polygon[left_extreme].elements[1])],'r-.')
-		p = polygon[-1]
-		for c in polygon:
-			plt.plot([float(p.elements[0]),float(c.elements[0])],[float(p.elements[1]),float(c.elements[1])],'b')
-			p = c
-		plt.show()
+		if graphics:
+			plt.plot([float(point.elements[0]),float(polygon[left_extreme].elements[0])],[float(point.elements[1]),float(polygon[left_extreme].elements[1])],'r-.')
+			p = polygon[-1]
+			for c in polygon:
+				plt.plot([float(p.elements[0]),float(c.elements[0])],[float(p.elements[1]),float(c.elements[1])],'b')
+				p = c
+			plt.show()
 
-		plt.title('right')
-		plt.plot([float(point.elements[0]),float(polygon[left].elements[0])],[float(point.elements[1]),float(polygon[left].elements[1])],'m')
-		plt.plot([float(point.elements[0]),float(polygon[right].elements[0])],[float(point.elements[1]),float(polygon[right].elements[1])],'c')
+		if graphics:
+			plt.title('right')
+			plt.plot([float(point.elements[0]),float(polygon[left].elements[0])],[float(point.elements[1]),float(polygon[left].elements[1])],'m')
+			plt.plot([float(point.elements[0]),float(polygon[right].elements[0])],[float(point.elements[1]),float(polygon[right].elements[1])],'c')
 		right_extreme = fan_bitonic_binsearch(polygon[right:]+polygon[:right],point,1)
 		right_extreme = (right_extreme + right) % len(polygon)
-		plt.plot([float(point.elements[0]),float(polygon[right_extreme].elements[0])],[float(point.elements[1]),float(polygon[right_extreme].elements[1])],'g-.')
+		if graphics:
+			plt.plot([float(point.elements[0]),float(polygon[right_extreme].elements[0])],[float(point.elements[1]),float(polygon[right_extreme].elements[1])],'g-.')
+			p = polygon[-1]
+			for c in polygon:
+				plt.plot([float(p.elements[0]),float(c.elements[0])],[float(p.elements[1]),float(c.elements[1])],'b')
+				p = c
+			plt.show()
 
-		p = polygon[-1]
-		for c in polygon:
-			plt.plot([float(p.elements[0]),float(c.elements[0])],[float(p.elements[1]),float(c.elements[1])],'b')
-			p = c
-		plt.show()
-
+		
+		plt.plot([float(point.elements[0]),float(polygon[left_extreme].elements[0])],[float(point.elements[1]),float(polygon[left_extreme].elements[1])],'b-.')
+		plt.plot([float(point.elements[0]),float(polygon[right_extreme].elements[0])],[float(point.elements[1]),float(polygon[right_extreme].elements[1])],'b-.')
 		#print (left,right)
-		print left_extreme,right_extreme
+		#print left_extreme,right_extreme
 		#f = []
 		#for p in polygon:
 		#	#f.append(triangle_direction([p,polygon[left_extreme],point]))
 		#	f.append(objective2(p,polygon[right_extreme],point))
 		#print f
 
-		plt.plot(float(point.elements[0]),float(point.elements[1]),'g*')
+		#plt.plot(float(point.elements[0]),float(point.elements[1]),'g*')
 
+
+		le = polygon[left_extreme]
+		re = polygon[right_extreme]
 		if left_extreme<=right_extreme:
 			polygon.insert(right_extreme, point)
 			del polygon[left_extreme+1:right_extreme]
@@ -184,25 +219,47 @@ def convex_hull_2d(points):
 			del polygon[:right_extreme]
 			polygon.insert(0, point)
 
+		l = len(pending)
+		news = [le,point,re]
+		for t in pending:
+			reject = True
+			p = news[-1]
+			for c in news:
+				if triangle_direction([p,c,t]) > 0:
+					reject = False
+				p = c
+			if reject:
+		 		pending.remove(t)
+		print l-len(pending)
 	pending = list(points)
 	result = []
 	result.append(pending.pop())
 	result.append(pending.pop())
 
 	v = pending.pop()
-	if triangle_direction(result+[v]) > 0:
+	if triangle_direction(result+[v]) < 0:
 		result.append(v)
 	else:
 		result.insert(1,v)
 
-	while len(pending) >0:
 
-		#p = pending[-1]
-		#for c in pending:
-		#	plt.plot([float(p.elements[0]),float(c.elements[0])],[float(p.elements[1]),float(c.elements[1])],'b')
-		#	p = c
+	p = result[-1]
+	for c in result:
+		#plt.plot([float(p.elements[0]),float(c.elements[0])],[float(p.elements[1]),float(c.elements[1])],'b-.')
+		plt.plot([float(p.elements[0]),float(c.elements[0])],[float(p.elements[1]),float(c.elements[1])],'b')
+		p = c
+	while len(pending) >0:
 		point = pending.pop()
 		insert_point(result,point)
+		
+	for x in points:
+		p = result[-1]
+		for c in result:
+			if triangle_direction([p,c,x])>0:
+				print "fail:"
+				print p,c,x
+			p = c
+
 
 	return result
 
@@ -215,7 +272,8 @@ def test_convex_hull_2d(count):
 		elements = []
 		for j in range(2):
 			den = random.randint(1,1000000)
-			num = random.randint(0,den-1)
+			#num = random.randint(0,den-1)
+			num = int(random.gauss(1,0.5)*den)
 
 			elements.append(mpq(num,den))
 		p = Vector(elements)
@@ -229,6 +287,6 @@ def test_convex_hull_2d(count):
 		plt.plot(float(c.elements[0]),float(c.elements[1]),'ro')
 
 	plt.show()
-random.seed(6)
-test_convex_hull_2d(10)
+graphics = False
+test_convex_hull_2d(2000)
 
