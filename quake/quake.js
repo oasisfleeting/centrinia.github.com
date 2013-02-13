@@ -16,8 +16,8 @@ var maximum_draw_count = null;
 var use_wireframe = false;
 var use_texturing = true;
 var use_lighting = true;
-var use_canvas = true;
-var use_webgl = use_canvas;
+var use_canvas = false;
+var use_webgl = !use_canvas;
 //var use_canvas = false;
 //var use_webgl = true;
 var use_noclip = true;
@@ -209,7 +209,7 @@ function Vector2(coord)
 function Viewer(fov,direction,viewpoint)
 {
 // Update the frustum.//{{{
-	this.update = function(fov,viewpoint,direction,intersection_handler) {
+	this.update = function(fov,viewpoint,direction,pitch_angle,intersection_handler) {
 		if(!intersection_handler(this.viewpoint,viewpoint)) {
 		  return;
 		}
@@ -226,6 +226,7 @@ function Viewer(fov,direction,viewpoint)
 				this.direction_angle = 2*Math.PI - this.direction_angle;
 			}
 		}
+		this.pitch_angle = pitch_angle
 	};//}}}
 // Move the viewpoint forward.//{{{
 	this.move_forward = function (step, intersection_handler)
@@ -233,9 +234,11 @@ function Viewer(fov,direction,viewpoint)
 		this.stepDistance++;
 		var viewbob = Math.sin(this.stepDistance*2*Math.PI*config['viewbob']['frequency'])*config['viewbob']['amplitude'];
 
+		var pitch = -Math.sin(this.pitch_angle);
+
 		var vector = this.direction_vector.scale(step);
-		var new_viewpoint = this.viewpoint.add(vector).add(Vector.create([0,0,viewbob]));
-		this.update(this.fov,new_viewpoint,this.direction_vector, intersection_handler);
+		var new_viewpoint = this.viewpoint.add(vector).add(Vector.create([0,0,viewbob+pitch*step]));
+		this.update(this.fov,new_viewpoint,this.direction_vector,this.pitch_angle, intersection_handler);
 	};//}}}
 // Move the viewpoint to the left.//{{{
 	this.move_left = function (step, intersection_handler)
@@ -252,19 +255,19 @@ function Viewer(fov,direction,viewpoint)
 		vector.coord[0] *= -1;
 
 		var new_viewpoint = this.viewpoint.add(vector).add(Vector.create([0,0,viewbob]));
-		this.update(this.fov,new_viewpoint,this.direction_vector, intersection_handler);
+		this.update(this.fov,new_viewpoint,this.direction_vector,this.pitch_angle,intersection_handler);
 	};//}}}
 // Move the viewpoint up.//{{{
 	this.move_up = function (step,intersection_handler)
 	{
 		var vector = Vector.create([0,0,step]);
 		var new_viewpoint = this.viewpoint.add(vector);
-		this.update(this.fov,new_viewpoint,this.direction_vector, intersection_handler);
+		this.update(this.fov,new_viewpoint,this.direction_vector,this.pitch_angle,intersection_handler);
 	};//}}}
 // Turn the frustum to the left.//{{{
 	this.turn_left = function (step)
 	{
-		this.update(this.fov,this.viewpoint,this.direction_vector.rotate2d(step), function (o,v) { return true; });
+		this.update(this.fov,this.viewpoint,this.direction_vector.rotate2d(step),this.pitch_angle, function (o,v) { return true; });
 	};//}}}
 // Directly set the viewpoint.//{{{
 	this.set_viewpoint = function(viewpoint) {
@@ -280,7 +283,7 @@ function Viewer(fov,direction,viewpoint)
 	this.super_fov = fov;
 	this.stepDistance = 0;
 	this.viewpoint = viewpoint;
-	this.update(fov,viewpoint,direction, function (o,v) { return true;});
+	this.update(fov,viewpoint,direction,0,function (o,v) { return true;});
 }//}}}
 
 function Wall(endpoint0,endpoint1,elevations,color,textures)
@@ -691,8 +694,17 @@ function clip_polygon_cascade(vertices, planes) {
 // Globals.//{{{
 $(document).ready(function() {
 	var canvas_name = 'canvas';
-	canvas_element = document.getElementById(canvas_name);
-	canvas_element2 = document.getElementById('canvas2');
+	//canvas_element = document.getElementById(canvas_name);
+	//canvas_element2 = document.getElementById('canvas2');
+	canvas_element = $('#canvas');
+	canvas_element2 = $('#canvas2');
+	if(canvas_element2.length==0) {
+		canvas_element2 = canvas_element;
+	}
+	canvas_element = canvas_element[0];
+	canvas_element2 = canvas_element2[0];
+
+
 	var texture_atlas;
 	if(use_webgl) {
 // Initialize WebGL.//{{{
@@ -822,7 +834,19 @@ $(document).ready(function() {
 	'rendering': {
 		'leaf': null,
 		'indexes':null
+		},
+	'input' : {
+		'touches': {
+			'movement' : {
+				'start' : null,
+				'current' : null
+			},
+			'look' : {
+				'start' : null,
+				'current' : null
+			},
 		}
+	}
 	};
 // Redraw the screen.//{{{
 	var redraw = function() {
@@ -840,8 +864,9 @@ $(document).ready(function() {
 
 			state['transformations']['modelview'] = Matrix.identity(4);
 			state['transformations']['modelview'] = state['transformations']['modelview'].scale([1/100,1/100,1/100]);
-			state['transformations']['modelview'] = state['transformations']['modelview'].rotate(roll_angle, [Vector.create([1,0,0]),Vector.create([0,1,0])]);
-			state['transformations']['modelview'] = state['transformations']['modelview'].rotate(pitch_angle-Math.PI/2, [Vector.create([0,1,0]),Vector.create([0,0,1])]);
+			//state['transformations']['modelview'] = state['transformations']['modelview'].rotate(roll_angle, [Vector.create([1,0,0]),Vector.create([0,1,0])]);
+			state['transformations']['modelview'] = state['transformations']['modelview'].rotate(state['player'].pitch_angle-Math.PI/2, [Vector.create([0,1,0]),Vector.create([0,0,1])]);
+			//state['transformations']['modelview'] = state['transformations']['modelview'].rotate(-Math.PI/2, [Vector.create([0,1,0]),Vector.create([0,0,1])]);
 			state['transformations']['modelview'] = state['transformations']['modelview'].rotate(Math.PI/2-state['player'].direction_angle, [Vector.create([1,0,0]),Vector.create([0,1,0])]);
 			state['transformations']['modelview'] = state['transformations']['modelview'].translate(state['player'].viewpoint.scale(-1));
 
@@ -1277,17 +1302,23 @@ $(document).ready(function() {
 
 	state['player'] = select_map();
 	function redraw2() {
-		if($('#canvas_option').prop('checked')) {
-			use_webgl = false;
-			use_canvas = !use_webgl;
-			redraw();
-		}
+		if($('#webgl_option').length == 0) {
+				use_webgl = true;
+				use_canvas = !use_webgl;
+				redraw();
+		} else {
+			if($('#canvas_option').prop('checked')) {
+				use_webgl = false;
+				use_canvas = !use_webgl;
+				redraw();
+			}
 
-		if($('#webgl_option').prop('checked')) {
-			use_webgl = true;
-			use_canvas = !use_webgl;
-			redraw();
-			use_canvas = true;
+			if($('#webgl_option').prop('checked')) {
+				use_webgl = true;
+				use_canvas = !use_webgl;
+				redraw();
+				use_canvas = true;
+			}
 		}
 	}
 
@@ -1300,8 +1331,8 @@ $(document).ready(function() {
       if (lastTime != 0) {
 			
 			var elapsed = timeNow - lastTime;
-			pitch_angle = Math.sin((Math.sqrt(2)/3)*timeNow/1000.0)*Math.PI*2*(10/360);
-			roll_angle = Math.sin((Math.sqrt(3)/5)*timeNow/1000.0)*Math.PI*2*(6/360);
+			/*pitch_angle = Math.sin((Math.sqrt(2)/3)*timeNow/1000.0)*Math.PI*2*(10/360);
+			roll_angle = Math.sin((Math.sqrt(3)/5)*timeNow/1000.0)*Math.PI*2*(6/360);*/
 
 
 // Gravity
@@ -1347,6 +1378,66 @@ $(document).ready(function() {
 	$('#map_option').change(function() {
 		state['player'] = select_map();
 	});
+
+	$('#canvas').bind('touchstart',function (e) {
+		e.preventDefault();
+		for(var i=0; i < e.originalEvent.touches.length;i++) {
+			var touch = e.originalEvent.touches[i];
+			var element = $(this).offset();
+			var x = touch.pageX - element.left;
+			var y = touch.pageY - element.top;
+			if(0 < x && x < $(this).width()/2) {
+				state['input']['touches']['movement']['start'] = [x,y];
+			} else if ($(this).width()/2 < x && x < $(this).width()) {
+				state['input']['touches']['look']['start'] = [x,y];
+			}
+		}
+	});
+	$('#canvas').bind('touchmove',function (e) {
+		e.preventDefault();
+		for(var i=0; i < e.originalEvent.touches.length;i++) {
+			var touch = e.originalEvent.touches[i];
+			var element = $(this).offset();
+			var x = touch.pageX - element.left;
+			var y = touch.pageY - element.top;
+			if(0 < x && x < $(this).width()/2) {
+				var start = state['input']['touches']['movement']['start'];
+				if(start) {
+					state['input']['touches']['movement']['current'] = [x-start[0],y-start[1]];
+				} else {
+					state['input']['touches']['movement']['current'] = null;
+				}
+			} else if ($(this).width()/2 < x && x < $(this).width()) {
+				var start = state['input']['touches']['look']['start'];
+				if(start) {
+					state['input']['touches']['look']['current'] = [x-start[0],y-start[1]];
+				} else {
+					state['input']['touches']['look']['current'] = null;
+				}
+			}
+		}
+	});
+	var touchend = function (e) {
+		e.preventDefault();
+		for(var i=0; i < e.originalEvent.changedTouches.length;i++) {
+			var touch = e.originalEvent.changedTouches[i];
+			var element = $(this).offset();
+			var x = touch.pageX - element.left;
+			var y = touch.pageY - element.top;
+			if(0 < x && x < $(this).width()/2) {
+				state['input']['touches']['movement']['start'] = null;
+				state['input']['touches']['movement']['current'] = null;
+			} else if ($(this).width()/2 < x && x < $(this).width()) {
+				state['input']['touches']['look']['start'] = null;
+				state['input']['touches']['look']['current'] = null;
+			}
+		}
+	};
+	$('#canvas').bind('touchend',touchend);
+	$('#canvas').bind('touchleave',touchend);
+	$('#canvas').bind('touchcancel',touchend);
+
+
 // Return true if there is no intersection with the map.
 	function test_intersection(previous, viewpoint) {
 		if(use_noclip) {
@@ -1371,10 +1462,10 @@ $(document).ready(function() {
 		//"use strict";
 		var depressed = [];
 		window.onkeydown = function (event) {
+				event.preventDefault();
 			if(Object.keys(config['keycodes']['keys']).indexOf(event.which.toString()) >= 0 ||
 				Object.keys(config['keycodes']['modifiers']).indexOf(event.which.toString()) >= 0 
 			) {
-				event.preventDefault();
 			}
 			if (depressed.indexOf(event.which) < 0) {
 				depressed.push(event.which);
@@ -1389,6 +1480,38 @@ $(document).ready(function() {
 		window.setInterval(function () {
 			var keys = [];
 			var modifiers = [];
+			if(state['input']['touches']['movement']['start'] != null && state['input']['touches']['movement']['current'] != null) {
+				var change = state['input']['touches']['movement']['current'];
+
+				var vertical_scale = -1.0e-2;
+				var horizontal_scale = -1.0e-2;
+				var up_amount = change[1] * vertical_scale;
+				if(up_amount > 0) {
+					state['player'].move_forward(config['movement']['forward distance']*up_amount, test_intersection);
+				} else if(up_amount<0) {
+					state['player'].move_forward(config['movement']['backward distance']*up_amount, test_intersection);
+				}
+
+				var left_amount = change[0] * horizontal_scale;
+				state['player'].move_left(config['movement']['strafe distance']*left_amount, test_intersection);
+			}
+
+
+			if(state['input']['touches']['look']['start'] != null && state['input']['touches']['look']['current'] != null) {
+				var change = state['input']['touches']['look']['current'];
+
+				var vertical_scale = 3.0e-1;
+				var horizontal_scale = -1.0e-2;
+				var up_amount = change[1] * vertical_scale;
+				state['player'].pitch_angle = up_amount *2*Math.PI/360;
+
+				var left_amount = change[0] * horizontal_scale;
+				//state['player'].move_left(config['look']['strafe distance']*left_amount, test_intersection);
+				state['player'].turn_left(config['movement']['turn angle'] * left_amount * 2 * Math.PI / 360);
+			}
+
+
+
 			depressed.forEach(function (keycode) {
 				var key = config['keycodes']['keys'][keycode];
 				if(key) {

@@ -222,25 +222,28 @@ def draw_polygon(polygon):
 	#time.sleep(10/1000.0)
 	#pygame.display.flip()
 
-def draw_subsector(subsector,bounds):
-	extents = max(bounds[1][0]-bounds[0][0],bounds[1][1]-bounds[0][1])
-	scale_x = extents
-	scale_y = extents
+def draw_subsector(subsector):
+	#extents = max(bounds[1][0]-bounds[0][0],bounds[1][1]-bounds[0][1])
+	#scale_x = extents
+	#scale_y = extents
 	for seg in map(lambda index: level['SEGS'][index+subsector['seg offset']],range(subsector['seg count'])):
 		linedef = level['LINEDEFS'][seg['linedef']]
-		#vertexes = map(lambda key: level['VERTEXES'][linedef[key]]['vector'],['start vertex','end vertex'])
-		vertexes = map(lambda key: level['VERTEXES'][seg[key]]['vector'],['start vertex','end vertex'])
+		vertexes = map(lambda key: level['VERTEXES'][linedef[key]]['vector'],['start vertex','end vertex'])
+		#vertexes = map(lambda key: level['VERTEXES'][seg[key]]['vector'],['start vertex','end vertex'])
 		#px = float((vertexes[0].elements[0]-bounds[0][0])/scale_x)*window_size+window_padding
 		#py = float(1-(vertexes[0].elements[1]-bounds[0][1])/scale_y)*window_size+window_padding
 		#cx = float((vertexes[1].elements[0]-bounds[0][0])/scale_x)*window_size+window_padding
 		#cy = float(1-(vertexes[1].elements[1]-bounds[0][1])/scale_y)*window_size+window_padding
 
+		t = map(lambda i: map(lambda v: v.elements[i], vertexes),range(2))
 		#pygame.draw.line(window,(0,255,0),(px,py),(cx,cy))
 		if linedef['flags']&0x04 != 0:
-			t = map(lambda i: map(lambda v: v.elements[i], vertexes),range(2))
-		#plt.plot([px,cx],[-py,-cy],'g')
-			plt.plot(t[0],t[1],'g')
-			plt.plot(t[:][0],t[:][1],'m*')
+		#if True:
+			#plt.plot([px,cx],[-py,-cy],'g')
+			plt.plot(t[0],t[1],'g',linewidth=2)
+		else:
+			plt.plot(t[0],t[1],'m',linewidth=2)
+		plt.plot(t[:][0],t[:][1],'m*')
 	#time.sleep(10/1000.0)
 	#pygame.display.flip()
 
@@ -297,7 +300,6 @@ def normalize_level(level):
 		#if subsector['index'] == 166:
 		#	plt.clf()
 		#	draw_polygon(polygon)
-		#	plt.show()
 		for seg in map(lambda index: level['SEGS'][index+subsector['seg offset']],range(subsector['seg count'])):
 		#for seg in map(lambda index: level['SEGS'][index+subsector['seg offset']],range(min(2,subsector['seg count']))):
 			linedef = level['LINEDEFS'][seg['linedef']]
@@ -310,8 +312,8 @@ def normalize_level(level):
 			else:
 				next_sidedef_index = linedef['left sidedef']
 
-			#vertexes = map(lambda key: level['VERTEXES'][seg[key]]['vector'],['start vertex','end vertex'])
 			vertexes = map(lambda key: level['VERTEXES'][linedef[key]]['vector'],vertex_keys)
+
 			splitter = make_line(vertexes[1], vertexes[0])
 			next_cell = None
 			if two_sided and next_sidedef_index>=0:
@@ -333,7 +335,7 @@ def normalize_level(level):
 				tangent = current-previous
 				previous_dot = tangent.dot(previous)
 				current_dot = tangent.dot(current)
-				assert(current_dot > previous_dot)
+				assert(current_dot >= previous_dot)
 				#if line.normal_equation(vertexes[0]) == 0 and line.normal_equation(vertexes[1]) == 0:
 				#if splitter.normal.dot(tangent) == 0 and splitter.normal_equation(previous) == 0:
 				if splitter.normal_equation(current)==0 and splitter.normal_equation(previous) == 0:
@@ -346,7 +348,7 @@ def normalize_level(level):
 						(t0,t1) = (t1,t0)
 						(v0,v1) = (v1,v0)
 
-					assert(t0<t1)
+					assert(t0<=t1)
 					if previous_dot < t0 and t1 < current_dot:
 						#right_polygon.insert(current_index,(v1,portal))
 						#right_polygon.insert(current_index,(v0,current_aux))
@@ -396,8 +398,22 @@ def normalize_level(level):
 		#for (v,_) in right_polygon[1:]:
 		#	s+=v
 		#s /= len(right_polygon)
-			
 		return right_polygon
+		for seg in map(lambda index: level['SEGS'][index+subsector['seg offset']],range(subsector['seg count'])):
+			seg_vertexes = map(lambda key: level['VERTEXES'][seg[key]],['start vertex','end vertex'])
+
+			for vertex in seg_vertexes:
+				vector = vertex['vector']
+				(closest,_) = right_polygon[0]
+				closest_dist = (closest-vector).dot(closest-vector)
+				for (v,_) in right_polygon[1:]:
+					dist = (v-vector).dot(v-vector)
+					if closest_dist > dist:
+						closest_dist = dist
+						closest = v
+				vertex['vector'] = closest
+		return right_polygon
+
 	def modify_subsector(polygon, subsector):
 		def compare_norms(a,b):
 			a_norm_square = a.dot(a)
@@ -411,12 +427,11 @@ def normalize_level(level):
 			#for v in vertexes:
 			for vname in ['start vertex','end vertex']:
 				v = level['VERTEXES'][seg[vname]]['vector']
-				u = polygon[0]
-				for w in polygon[1:]:
+				(u,_) = polygon[0]
+				for (w,_) in polygon[1:]:
 					if compare_norms(u-v,w-v)>0:
 						u = w
-				if (u-v).dot(u-v)<1:
-					level['VERTEXES'][seg[vname]]['vector'] = u
+				level['VERTEXES'][seg[vname]]['vector'] = u
 				
 	def winding(points):
 		normal = (points[0]-points[1]).cross(points[2]-points[1])
@@ -444,7 +459,8 @@ def normalize_level(level):
 				split_polygon(child,depth+1,next_polygon)
 			else:
 				flat = next_polygon
-				#modify_subsector(flat,child)
+				flat = carve_subsector(flat,child)
+				modify_subsector(flat,child)
 				flat = carve_subsector(flat,child)
 				#print winding(map(lambda (v,_): v,flat))
 				child['polygon'] = flat
@@ -456,47 +472,47 @@ def normalize_level(level):
 			if is_node:
 				draw_subsectors(child,depth+1)
 			else:
-				draw_subsector(child,bounds)
-
+				draw_subsector(child)
 
 	def compute_bound(vertexes):
 		result = geometry.quickhull(vertexes)
 		result.reverse()
 		return result
 
-	bounds = level['VERTEXES'][0]['vector'].elements[:2]
-	bounds = [list(bounds),list(bounds)]
+	#bounds = level['VERTEXES'][0]['vector'].elements[:2]
+	#bounds = [list(bounds),list(bounds)]
 	#print bounds[0]
 	#print min(bounds[0][0],bounds[0][1])
 	#print max(bounds[0][0],bounds[0][1])
-	for vertex in level['VERTEXES']:
-		xy = vertex['vector'].elements[:2]
+	#for vertex in level['VERTEXES']:
+	#	xy = vertex['vector'].elements[:2]
 		#print x,y,bounds
 		#print x,bounds[0][0], min(x,bounds[0][0])
 
-		bounds[0][0] = min(bounds[0][0],xy[0])
-		bounds[0][1] = min(bounds[0][1],xy[1])
-		bounds[1][0] = max(bounds[1][0],xy[0])
-		bounds[1][1] = max(bounds[1][1],xy[1])
+	#	bounds[0][0] = min(bounds[0][0],xy[0])
+	#	bounds[0][1] = min(bounds[0][1],xy[1])
+	#	bounds[1][0] = max(bounds[1][0],xy[0])
+	#	bounds[1][1] = max(bounds[1][1],xy[1])
 
 	#polygon = map(Vector,													\
 	#	[[bounds[0][0],bounds[0][1],rational(0)],		\
 	#		[bounds[1][0],bounds[0][1],rational(0)],		\
 	#		[bounds[1][0],bounds[1][1],rational(0)],		\
 	#		[bounds[0][0],bounds[1][1],rational(0)]]))
-	polygon = map(lambda v: (v,True),compute_bound(map(lambda v: v['vector'], level['VERTEXES'])))
+	polygon = compute_bound(map(lambda v: v['vector'], level['VERTEXES']))
+
 	#pygame.init()
 	plt.clf()
 	split_polygon(level['NODES'][-1],0,polygon)
 	#draw_subsectors(level['NODES'][-1],0)
-	#for linedef in level['LINEDEFS']:
-	#	if linedef['flags']&0x04 == 0:
-	#	#if True:
-	#		vertexes = map(lambda key: level['VERTEXES'][linedef[key]]['vector'],['start vertex','end vertex'])
-	#		t = map(lambda i: map(lambda v: v.elements[i], vertexes),range(2))
-	#	#plt.plot([px,cx],[-py,-cy],'g')
-	#		plt.plot(t[0],t[1],'g')
-	#		plt.plot(t[:][0],t[:][1],'m*')
+	for linedef in level['LINEDEFS']:
+		#if linedef['flags']&0x04 == 0:
+		if True:
+			vertexes = map(lambda key: level['VERTEXES'][linedef[key]]['vector'],['start vertex','end vertex'])
+			t = map(lambda i: map(lambda v: v.elements[i], vertexes),range(2))
+		#plt.plot([px,cx],[-py,-cy],'g')
+			plt.plot(t[0],t[1],'g')
+			plt.plot(t[:][0],t[:][1],'m*')
 
 	plt.show()
 
@@ -613,50 +629,6 @@ def intersect_segment(splitter,end,start):
 		return (t,vector)
 	else:
 		return None
-
-def clip_polygon(polygon,splitter,side,right_aux_default,left_aux_default):
-	if len(polygon) == 0:
-		return (polygon,polygon)
-	right = []
-	left = []
-	(previous,_) = polygon[-1]
-
-	previous_dot = splitter.normal_equation(previous) * side
-	for (current,current_aux) in polygon:
-		current_dot = splitter.normal_equation(current) * side
-
-		if current_dot*previous_dot < rational(0):
-			intersection_result = intersect_segment(splitter,current,previous)
-			if intersection_result:
-				(t,intersection) = intersection_result
-				#print t,intersection_dot
-				if rational(0) <= t and t <= rational(1): 
-					right_aux = right_aux_default
-					left_aux = left_aux_default
-					if previous_dot>rational(0):
-						right_aux = current_aux
-					if previous_dot<rational(0):
-						left_aux = current_aux
-					right.append((intersection,right_aux))
-					left.append((intersection,left_aux))
-		if current_dot >= rational(0):
-			#if current_dot == 0 and previous_dot == 0:
-			if current_dot == 0 and previous_dot <= 0:
-				aux = right_aux_default
-			else:
-				aux = current_aux
-			right.append((current,aux))
-
-		if current_dot <= rational(0):
-			#if current_dot == 0 and previous_dot == 0:
-			if current_dot == 0 and previous_dot >= 0:
-				aux = left_aux_default
-			else:
-				aux = current_aux 
-			left.append((current,aux))
-
-		(previous_dot,previous) = (current_dot,current)
-	return (right,left)
 
 class KeyRecord:
 	def __init__(self,key,record):
@@ -841,8 +813,8 @@ def to_quake(level):
 						#face_indexes.append(find_item('face',faces,ceiling_face))
 
 		if len(subsector['polygon'])>=3:
-			floor_vertexes = map(lambda v: geometry.Vector(v.elements[0:2]+[floor_height]), subsector['polygon'])
-			ceiling_vertexes = map(lambda v: geometry.Vector(v.elements[0:2]+[ceiling_height]), subsector['polygon'])
+			floor_vertexes = map(lambda (v,_): geometry.Vector(v.elements[0:2]+[floor_height]), subsector['polygon'])
+			ceiling_vertexes = map(lambda (v,_): geometry.Vector(v.elements[0:2]+[ceiling_height]), subsector['polygon'])
 			ceiling_vertexes.reverse()
 
 			for vertex in floor_vertexes:
@@ -928,8 +900,8 @@ with open('doom.wad','r') as wad_file:
 	#window = pygame.display.set_mode((window_size+2*window_padding,window_size+2*window_padding))
 	levelnames = levels.keys()
 	levelnames.sort()
-	for levelname in levelnames:
-	#for levelname in ['MAP01']:
+	#for levelname in levelnames:
+	for levelname in ['MAP20']:
 	#for levelname in []:
 		#window.fill((0,0,0))
 		quake = {}
@@ -938,7 +910,7 @@ with open('doom.wad','r') as wad_file:
 		normalize_level(level)['VERTEXES']
 		#time.sleep(5)
 
-		continue
+		#continue
 
 		quake = to_quake(level)
 
