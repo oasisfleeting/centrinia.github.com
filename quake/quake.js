@@ -78,8 +78,11 @@ var config = {
 		}
 	},
 	'key refresh' : 35,
+	'analog stick radius': 100,
+	'analog stick scale': 2,
 	'physics' : {
-		'gravity': 6.0e-2
+		//'gravity': 6.0e-2
+		'gravity': 0
 	},
 	'movement' : {
 		'strafe distance' : 5,
@@ -93,6 +96,16 @@ var config = {
 		'frequency' : 0.07
 	}
 };
+
+function clamp(value, low,high) {
+	if(value < low) {
+		return low;
+	} else if(high < value) {
+		return high;
+	} else {
+		return value;
+	}
+}
 
 //{{{
 var clone = function() {
@@ -1085,7 +1098,7 @@ $(document).ready(function() {
 
 		function setup_pvs(leaf) {
 			var visible_leaves;
-			if(visilist) {
+			if(visilist && !use_wireframe) {
 				var list_index = leaf.visilist_start;
 				visible_leaves = [leaf];
 				for(var i=1;i<level['leaves'].length && level['leaves'][i]['visilist start']>=0;list_index++) {
@@ -1141,10 +1154,11 @@ $(document).ready(function() {
 		var leaf = bsp.find_leaf(state['player'].viewpoint);
 
 		setup_scene();
-		if(leaf != state['rendering']['leaf']) {
+		if(leaf != state['rendering']['leaf'] || redo_indexes) {
 			var visible_leaves = setup_pvs(leaf);
 			state['rendering']['indexes'] = setup_indexes(visible_leaves);
 			state['rendering']['leaf'] = leaf;
+			redo_indexes = false;
 		}
 		render_leaves(state['rendering']['indexes']);
 
@@ -1161,6 +1175,7 @@ $(document).ready(function() {
 	var faces = null;
 	var visilist = null;
 	var leaves = null;
+	var redo_indexes = false;
 	level = null;
 	texture_indexes = null;
 
@@ -1374,6 +1389,7 @@ $(document).ready(function() {
 	});
 	$('#wireframe_option').change(function() {
 		use_wireframe = $('#wireframe_option').prop('checked');
+		redo_indexes = true;
 	});
 	$('#map_option').change(function() {
 		state['player'] = select_map();
@@ -1394,6 +1410,14 @@ $(document).ready(function() {
 		}
 	});
 	$('#canvas').bind('touchmove',function (e) {
+		var clamp_stick = function (coord, radius) {
+			var input_radius = Math.sqrt(coord[0]*coord[0]+coord[1]*coord[1]);
+			if(input_radius < radius) {
+				return coord;
+			} else {
+				return coord.map(function (x) { return x*radius/input_radius; });
+			}
+		};
 		e.preventDefault();
 		for(var i=0; i < e.originalEvent.touches.length;i++) {
 			var touch = e.originalEvent.touches[i];
@@ -1403,14 +1427,16 @@ $(document).ready(function() {
 			if(0 < x && x < $(this).width()/2) {
 				var start = state['input']['touches']['movement']['start'];
 				if(start) {
-					state['input']['touches']['movement']['current'] = [x-start[0],y-start[1]];
+					var coord = clamp_stick([x-start[0],y-start[1]],config['analog stick radius']);
+					state['input']['touches']['movement']['current'] = coord;
 				} else {
 					state['input']['touches']['movement']['current'] = null;
 				}
 			} else if ($(this).width()/2 < x && x < $(this).width()) {
 				var start = state['input']['touches']['look']['start'];
 				if(start) {
-					state['input']['touches']['look']['current'] = [x-start[0],y-start[1]];
+					var coord = clamp_stick([x-start[0],y-start[1]],config['analog stick radius']);
+					state['input']['touches']['look']['current'] = coord;
 				} else {
 					state['input']['touches']['look']['current'] = null;
 				}
@@ -1478,13 +1504,13 @@ $(document).ready(function() {
 			}
 		};
 		window.setInterval(function () {
-			var keys = [];
-			var modifiers = [];
 			if(state['input']['touches']['movement']['start'] != null && state['input']['touches']['movement']['current'] != null) {
 				var change = state['input']['touches']['movement']['current'];
 
-				var vertical_scale = -1.0e-2;
-				var horizontal_scale = -1.0e-2;
+				//var vertical_scale = -2.0e-2;
+				//var horizontal_scale = -2.0e-2;
+				var vertical_scale = -config['analog stick scale']/config['analog stick radius'];
+				var horizontal_scale = -config['analog stick scale']/config['analog stick radius'];
 				var up_amount = change[1] * vertical_scale;
 				if(up_amount > 0) {
 					state['player'].move_forward(config['movement']['forward distance']*up_amount, test_intersection);
@@ -1499,18 +1525,22 @@ $(document).ready(function() {
 
 			if(state['input']['touches']['look']['start'] != null && state['input']['touches']['look']['current'] != null) {
 				var change = state['input']['touches']['look']['current'];
-
-				var vertical_scale = 3.0e-1;
-				var horizontal_scale = -1.0e-2;
+				//var vertical_scale = 3.0e-2;
+				//var horizontal_scale = -2.0e-2;
+				var vertical_scale = config['analog stick scale']/config['analog stick radius'];
+				var horizontal_scale = -config['analog stick scale']/config['analog stick radius'];
 				var up_amount = change[1] * vertical_scale;
-				state['player'].pitch_angle = up_amount *2*Math.PI/360;
+				state['player'].pitch_angle = clamp(state['player'].pitch_angle + up_amount *2*Math.PI/360,-Math.PI/2,Math.PI/2);
 
 				var left_amount = change[0] * horizontal_scale;
 				//state['player'].move_left(config['look']['strafe distance']*left_amount, test_intersection);
 				state['player'].turn_left(config['movement']['turn angle'] * left_amount * 2 * Math.PI / 360);
+
 			}
 
 
+			var keys = [];
+			var modifiers = [];
 
 			depressed.forEach(function (keycode) {
 				var key = config['keycodes']['keys'][keycode];

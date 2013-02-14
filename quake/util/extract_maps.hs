@@ -730,7 +730,7 @@ let {
 	} in do {
 		System.Directory.createDirectoryIfMissing True outpath;
 
-		BS.writeFile (outpath </> "texture.png") $ encodePng texture_image;
+		BL.writeFile (outpath </> "texture.png") $ encodePng texture_image;
 		--mapM print positions;
 		--mapM print filepath_suffixes;
 		--print filepath_prefix;

@@ -17,19 +17,30 @@ bsp_definition = TypeCustom (
 	]),
 	("miptex",make_entry True False $ TypeCustom [
 		("numtex",long),
-		--("offsets",TypeArray (IntegerField "numtex") long)
 		("offsets",TypeArray (IntegerField "numtex") (
-			TypeCustom [
-			("offset",long),
-			("data",TypePointer False True (IntegerConst 1) (IntegerField "offset")
-				(TypeCustom [
-					("name",TypeString (Just 16)),
-					("width",u_long),
-					("height",u_long),
-					("offsets",TypeArray (IntegerConst 4) u_long)
-				])
-			)
-			]
+				TypeCustom [
+					("offset",long),
+					("texture data",
+						TypePointer False True
+						(IntegerConst 1)
+						(IntegerField "offset")
+						(TypeCustom [
+							("name",TypeString (Just 16)),
+							("width",u_long),
+							("height",u_long),
+							("offsets",TypeArray (IntegerConst 4) 
+							$ TypeCustom [
+								("offset",long),
+								("image data",TypePointer False False
+									(IntegerFunction $
+										\vars -> vars 0 "width" * vars 0 "height" `div` 2^(vars 1 "$index"-3))
+									(IntegerField "offset")
+									u_char
+								)
+							])
+						])
+					)
+				]
 			)
 		)
 	]),
@@ -120,10 +131,10 @@ bsp_definition = TypeCustom (
 main = do {
 	contents <- BL.readFile $ "map.bsp";
 	--print $ snd $ (!!2) $ fromCustom $ snd $ (!!1) $ fromCustom $
-	print
 	-- putStr $ (\(StoreCustom (_:(_,StoreCustom (_:_:(_,StorePointer (StoreString x:_)):_)):_)) -> x) 
-	-- $ (\(StoreCustom (_:_:_:(_,StoreCustom x):_)) -> x) 
-	$ runGet (make_get "" bsp_definition `runReaderT` ([],contents) `evalStateT` empty) $ contents;
+	print
+	$ (\(StoreCustom (_:_:_:(_,StoreCustom x):_)) -> x) 
+	$ runGet (make_get "" bsp_definition `runReaderT` contents `evalStateT` ([],empty)) $ contents;
 } where {
 	fromCustom (StoreCustom x) = x;
 };
