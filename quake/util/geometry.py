@@ -10,6 +10,31 @@ def sign(x):
 	return cmp(x,0)
 def rational(x):
 	return mpq(x,1)
+def mix(a,b,t):
+	return a+(b-a)*t
+
+
+def intersect_segment(splitter,end,start):
+	# (p-p0).n = 0
+	# p = (1-t)*s+t*e
+	# ((1-t)*s+t*e-p0).n = 0
+	# (s-p0).n+t*(e-s).n = 0
+	# t = - (s-p0).n / (e-s).n 
+
+	direction = end-start
+	#direction = map(lambda x:x/direction[-1],direction)
+	#normal = map(lambda x:x/normal[-1],normal)
+	#print direction,end,start,normal
+	denominator = splitter.normal.dot(direction)
+	if denominator != rational(0):
+		#t = map(lambda (x,y): -x*y,zip(dot_product_projective(normal,start),denominator))
+		t = -splitter.normal_equation(start)/denominator
+		vector = mix(start,end,t)
+		return (t,vector)
+	else:
+		return None
+
+
 class SimplePolygon:
 	def __init__(self,vertexes,auxillaries=None):
 		self.vertexes = list(vertexes)
@@ -23,14 +48,16 @@ class SimplePolygon:
 
 # Return the two polygons that result from the split.
 	def clip(polygon,splitter,right_aux_default=None,left_aux_default=None):
-		if len(polygon) == 0:
+		if len(polygon.vertexes) == 0:
 			return (polygon,polygon)
-		right = []
-		left = []
-		(previous,_) = polygon[-1]
+		right_vertexes = []
+		right_auxes = []
+		left_vertexes = []
+		left_auxes = []
+		previous = polygon.vertexes[-1]
 
 		previous_dot = splitter.normal_equation(previous) 
-		for (current,current_aux) in polygon:
+		for (current,current_aux) in zip(polygon.vertexes,polygon.auxillaries):
 			current_dot = splitter.normal_equation(current) 
 
 			if current_dot*previous_dot < rational(0):
@@ -45,15 +72,18 @@ class SimplePolygon:
 							right_aux = current_aux
 						if previous_dot<0:
 							left_aux = current_aux
-						right.append((intersection,right_aux))
-						left.append((intersection,left_aux))
+						right_vertexes.append(intersection)
+						right_auxes.append(right_aux)
+						left_vertexes.append(intersection)
+						left_auxes.append(left_aux)
 			if current_dot >= rational(0):
 				#if current_dot == 0 and previous_dot == 0:
 				if current_dot == 0 and previous_dot <= 0:
 					aux = right_aux_default
 				else:
 					aux = current_aux
-				right.append((current,aux))
+				right_vertexes.append(current)
+				right_auxes.append(aux)
 
 			if current_dot <= rational(0):
 				#if current_dot == 0 and previous_dot == 0:
@@ -61,10 +91,12 @@ class SimplePolygon:
 					aux = left_aux_default
 				else:
 					aux = current_aux 
-				left.append((current,aux))
+				left_vertexes.append(current)
+				left_auxes.append(aux)
 
 			(previous_dot,previous) = (current_dot,current)
-		return {'positive' : right, 'negative': left}
+		return {	'positive' : SimplePolygon(right_vertexes,right_auxes),			\
+					'negative': SimplePolygon(left_vertexes,left_auxes)}
 
 class Vector:
 	def __init__(self, elements=[]):

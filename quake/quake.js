@@ -16,10 +16,11 @@ var maximum_draw_count = null;
 var use_wireframe = false;
 var use_texturing = true;
 var use_lighting = true;
-var use_canvas = false;
-var use_webgl = !use_canvas;
 //var use_canvas = false;
-//var use_webgl = true;
+//var use_webgl = !use_canvas;
+var use_canvas = true;
+var use_webgl = true;
+
 var use_noclip = true;
 var use_blending = false;
 
@@ -248,8 +249,9 @@ function Viewer(fov,direction,viewpoint)
 		var viewbob = Math.sin(this.stepDistance*2*Math.PI*config['viewbob']['frequency'])*config['viewbob']['amplitude'];
 
 		var pitch = -Math.sin(this.pitch_angle);
+		var cs = Math.cos(this.pitch_angle);
 
-		var vector = this.direction_vector.scale(step);
+		var vector = this.direction_vector.scale(step*cs);
 		var new_viewpoint = this.viewpoint.add(vector).add(Vector.create([0,0,viewbob+pitch*step]));
 		this.update(this.fov,new_viewpoint,this.direction_vector,this.pitch_angle, intersection_handler);
 	};//}}}
@@ -1389,7 +1391,7 @@ $(document).ready(function() {
 	});
 	$('#wireframe_option').change(function() {
 		use_wireframe = $('#wireframe_option').prop('checked');
-		redo_indexes = true;
+		//redo_indexes = true;
 	});
 	$('#map_option').change(function() {
 		state['player'] = select_map();
