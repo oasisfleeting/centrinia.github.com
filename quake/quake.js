@@ -1327,14 +1327,14 @@ $(document).ready(function() {
 				redraw();
 		} else {
 			if($('#canvas_option').prop('checked')) {
-				//redo_indexes = true;
+				redo_indexes = true;
 				use_webgl = false;
 				use_canvas = !use_webgl;
 				redraw();
 			}
 
 			if($('#webgl_option').prop('checked')) {
-				//redo_indexes = true;
+				redo_indexes = true;
 				use_webgl = true;
 				use_canvas = !use_webgl;
 				redraw();
