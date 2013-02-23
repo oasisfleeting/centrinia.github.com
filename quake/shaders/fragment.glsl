@@ -13,6 +13,7 @@ uniform mat3 uNMatrix;
 varying vec4 vTextureCoord;
 varying vec4 vTextureRange;
 varying vec3 vTransformedNormal;
+varying vec3 vNormal;
 varying vec4 view_position;
 varying vec4 vertex_position;
 
@@ -56,8 +57,8 @@ void main(void) {
 	vec3 lantern_color = vec3(0.1,0.2,0.7)*2.0;
 	//vec3 lantern_color = vec3(0.1,0.2,0.7)*0.0;
 
-	vec4 texcolor = vec4(vTransformedNormal,1.0);
 	vec3 lightWeighting = vec3(1,1,1);
+	vec4 texcolor = vec4((vNormal+1.0)/2.0,1.0);
 	if(vTextureRange.z > 0.0) 
 	{
 		if(uUseTexturing) {
@@ -86,7 +87,6 @@ void main(void) {
 				cubemap(uNMatrix*viewvec),
 				begin,size);
 		}
-		lightWeighting = vec3(1,1,1);
 	}
 	gl_FragColor = vec4(texcolor.rgb*lightWeighting,texcolor.a);
 }

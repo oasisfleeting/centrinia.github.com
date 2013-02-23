@@ -12,6 +12,7 @@ uniform vec2 texture_size;
 
 varying vec4 vTextureCoord;
 varying vec4 vTextureRange;
+varying vec3 vNormal;
 varying vec3 vTransformedNormal;
 varying vec4 view_position;
 varying vec4 vertex_position;
@@ -23,6 +24,7 @@ void main(void) {
 	gl_Position = uPMatrix * view_position;
 
 	vTransformedNormal = normalize(uNMatrix * aVertexNormal);
+	vNormal = aVertexNormal;
 	vTextureRange = aVertexTextureRange;
 	vTextureCoord = aVertexTextureCoord;
 }

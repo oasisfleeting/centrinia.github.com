@@ -9,17 +9,46 @@ import pyavltree
 import geometry
 from pyavltree import AVLTree
 from clnum import *
+import png
 
 import sys
 import pygame
 import time
-
+import texture_atlas as tex
 
 def strip_null(s):
 	return s.split('\0',1)[0]
 
 level_lumps = ['THINGS','LINEDEFS','SIDEDEFS','VERTEXES','SEGS','SSECTORS','NODES','SECTORS','REJECT','BLOCKMAP']
 levels = {}
+
+def read_image(name,filepos,wad_file):
+	wad_file.seek(filepos)
+
+	TRANSPARENT_COLOR = 255
+	HEADER_SIZE = 4*2
+	width,height,left,top = struct.unpack('4h',wad_file.read(HEADER_SIZE))
+
+	indexes_size = width*4
+	column_array = struct.unpack('{}I'.format(width),wad_file.read(indexes_size))
+	data = [TRANSPARENT_COLOR]*(width*height)
+	for i in range(width):
+		index = column_array[i]
+		wad_file.seek(filepos+index)
+		rowstart = 0
+		while rowstart != 255:
+			rowstart = ord(wad_file.read(1))
+			if rowstart == 255:
+				break
+			pixel_count = ord(wad_file.read(1))
+			wad_file.read(1) # Dummy value
+			column = map(ord,struct.unpack('{}c'.format(pixel_count),wad_file.read(pixel_count)))
+			wad_file.read(1) # Dummy value
+			#k = rowstart+i*height
+			#data[k:k+pixel_count] = column
+			for k in range(pixel_count):
+				data[(k+rowstart)*width+i] = column[k]
+	return {'name': name, 'width': width, 'height': height, 'data': data}
 
 def process_level_lump(name,filepos,wad_file,wadtype):
 	wad_file.seek(filepos)
@@ -384,7 +413,8 @@ def normalize_level(level):
 			is_right = polygon_side == 'positive'
 			(is_node,child) = select_node_child(node,is_right,level)
 			if is_node:
-				draw_polygon(next_polygon)
+				if use_plot:
+					draw_polygon(next_polygon)
 				split_polygon(child,next_polygon)
 			else:
 				flat = next_polygon
@@ -392,7 +422,8 @@ def normalize_level(level):
 				modify_subsector(flat,child)
 				flat = carve_subsector(flat,child)
 				child['polygon'] = flat
-				draw_polygon(flat)
+				if use_plot:
+					draw_polygon(flat)
 
 	def draw_subsectors(node,depth):
 		for is_right in [True,False]:
@@ -428,17 +459,20 @@ def normalize_level(level):
 	#		[bounds[1][0],bounds[1][1],rational(0)],		\
 	#		[bounds[0][0],bounds[1][1],rational(0)]]))
 	polygon = compute_bound(map(lambda v: v['vector'], level['VERTEXES']))
-
-	plt.clf()
+	
+	if use_plot:
+		plt.clf()
 	split_polygon(level['NODES'][-1],polygon)
-	for linedef in level['LINEDEFS']:
-		if True:
-			vertexes = map(lambda key: level['VERTEXES'][linedef[key]]['vector'],['start vertex','end vertex'])
-			t = map(lambda i: map(lambda v: v.elements[i], vertexes),range(2))
-			plt.plot(t[0],t[1],'g')
-			plt.plot(t[:][0],t[:][1],'m*')
+	if use_plot:
+		for linedef in level['LINEDEFS']:
+			if True:
+				vertexes = map(lambda key: level['VERTEXES'][linedef[key]]['vector'],['start vertex','end vertex'])
+				t = map(lambda i: map(lambda v: v.elements[i], vertexes),range(2))
+				plt.plot(t[0],t[1],'g')
+				plt.plot(t[:][0],t[:][1],'m*')
 
-	plt.show()
+	if use_plot:
+		plt.show()
 
 	return level
 
@@ -490,7 +524,8 @@ class Rational:
  		return cmp(a.num*b.den,b.num*a.den)
 
 class Face:
-	def __init__(self,vertexes):
+	def __init__(self,vertexes,texture_index):
+		self.texture_index = texture_index
 		three = Face.find_noncolinear(vertexes)
 		if three is None:
 			self.plane = geometry.Plane(geometry.Vector(map(rational,[0]*len(vertexes[0].elements))),rational(0))
@@ -527,7 +562,8 @@ class Face:
 		return { 'plane id': finder('plane',self.plane),
 					'texture index': 0,
 					'vertices index': map(lambda vertex: finder('vertex',vertex), self.vertexes),
-					'front side': True
+					'front side': True,
+					'texture index': self.texture_index
 				}
 class KeyRecord:
 	def __init__(self,key,record):
@@ -555,12 +591,23 @@ class IndexMap:
 	def __getitem__(self,index):
 		return self.reverse[index]
 
-def to_quake(level):
-	def make_wall_face(planes,vertexes,seg,floor_height,ceiling_height):
+def to_quake(level,miptex):
+	def make_wall_face(planes,vertexes,seg,floor_height,ceiling_height,texture):
 		def augment_vertex(index,elevation):
 			vertex = geometry.Vector(level['VERTEXES'][index]['vector'].elements)
 			vertex.elements[2] = elevation
 			return vertex
+		linedef = level['LINEDEFS'][seg['linedef']]
+		if seg['direction'] == 0:
+			sidedef = level['SIDEDEFS'][linedef['right sidedef']]
+		else:
+			sidedef = level['SIDEDEFS'][linedef['left sidedef']]
+
+		texture_name = sidedef['{} texture'.format(texture)]
+		side_vector = augment_vertex(seg['end vertex'],0) - augment_vertex(seg['start vertex'],0)
+		miptex_index = miptex[texture_name]['index']
+		texture = {'vectors': [[0,0,-1],side_vector],'displacements':[0,0],'miptex index':miptex_index}
+		texture_index = textures.find_insert(texture)
 
 		vertex_indexes = []
 
@@ -570,7 +617,7 @@ def to_quake(level):
 		face_vertexes.append(augment_vertex(seg['end vertex'],ceiling_height))
 		face_vertexes.append(augment_vertex(seg['start vertex'],ceiling_height))
 		vertex_indexes = map(lambda face_vertex: vertexes.find_insert(face_vertex), face_vertexes)
-		return Face(face_vertexes)
+		return Face(face_vertexes,texture_index)
 # The visibility list is run length encoded. A span of 8*N zeros aligned to a multiple of 8 would produce the byte sequence [0,N], if N is less than 256
 	def visilist_rle(row):
 		rle = []
@@ -610,7 +657,8 @@ def to_quake(level):
 	planes = IndexMap(item_finder)
 	nodes = []
 	for node in level['NODES']:
-		print 'node:\t' + str(float(node['index'])/len(level['NODES']))
+		if use_log:
+			print('node:\t'.format(float(node['index'])*100/len(level['NODES'])))
 
 		children_nodes = [None,None]
 		children_leaves = [None,None]
@@ -639,8 +687,10 @@ def to_quake(level):
 	leaves = []
 	vertexes = IndexMap(item_finder)
 	faces = IndexMap(item_finder)
+	textures = IndexMap(item_finder)
 	for subsector in level['SSECTORS']:
-		print 'subsector:\t' + str(float(subsector['index'])/len(level['SSECTORS']))
+		if use_log:
+			print('subsector:\t{}'.format(float(subsector['index'])*100/len(level['SSECTORS'])))
 		seg_count = subsector['seg count']
 		seg_first = subsector['seg offset']
 		sector = subsector['sector']
@@ -653,7 +703,7 @@ def to_quake(level):
 		for seg_index in range(seg_first,seg_count+seg_first):
 			seg = level['SEGS'][seg_index]
 			if level['LINEDEFS'][seg['linedef']]['flags'] & 0x04 == 0: # Not two sided
-				face = make_wall_face(planes,vertexes,seg,floor_height, ceiling_height)
+				face = make_wall_face(planes,vertexes,seg,floor_height, ceiling_height,'middle')
 				if len(face.vertexes)>0:
 					face_indexes.append(faces.find_insert(face))
 			else:
@@ -667,11 +717,11 @@ def to_quake(level):
 				next_ceiling_height = next_sector['ceiling height']
 
 				if next_floor_height > floor_height:
-					floor_face = make_wall_face(planes,vertexes,seg,floor_height, next_floor_height)
+					floor_face = make_wall_face(planes,vertexes,seg,floor_height, next_floor_height,'lower')
 					if len(floor_face.vertexes)>0:
 						face_indexes.append(faces.find_insert(floor_face))
 				if next_ceiling_height < ceiling_height:
-					ceiling_face = make_wall_face(planes,vertexes,seg,next_ceiling_height,ceiling_height)
+					ceiling_face = make_wall_face(planes,vertexes,seg,next_ceiling_height,ceiling_height,'upper')
 					if len(ceiling_face.vertexes)>0:
 						face_indexes.append(faces.find_insert(ceiling_face))
 
@@ -701,10 +751,15 @@ def to_quake(level):
 				'planes': planes.reverse,
 				'vertices': vertexes.reverse,
 				'visibility list': None, # visilist
-				'root node': len(nodes)-1
+				'root node': len(nodes)-1,
+				'textures': textures.reverse
 				}
 
+
 wadname = sys.argv[1]
+
+use_plot = False
+use_log = False
 
 with open(wadname,'r') as wad_file:
 	mapnames = re.compile('MAP\d\d|E\dM\d')
@@ -722,6 +777,19 @@ with open(wadname,'r') as wad_file:
 	print numlumps
 	print infotableofs
 	processing_levels = False
+	processing_flats = False
+	processing_patches = False
+	processing_sprites = False
+	patches_start_names = ['P_START','P1_START','P2_START','P3_START']
+	patches_end_names = ['P_END','P1_END','P2_END','P3_END']
+	flats_start_names = ['F_START','F1_START','F2_START']
+	flats_end_names = ['F_END','F1_END','F2_END']
+	sprites_start_names = ['S_START']
+	sprites_end_names = ['S_END']
+	patches = {}
+	flats = {}
+	sprites = {}
+	flat_size = 64
 	for i in range(numlumps):
 		DIRECTORY_ENTRY_SIZE = 4+4+8
 		wad_file.seek(i*DIRECTORY_ENTRY_SIZE+infotableofs)
@@ -741,31 +809,93 @@ with open(wadname,'r') as wad_file:
 			levels[level_name] = {}
 			continue
 
-		if processing_levels:
+		if patches_start_names.count(name)>0:
+			processing_patches = True
+			continue
+		elif patches_end_names.count(name)>0:
+			processing_patches = False
+			continue
+		elif flats_start_names.count(name)>0:
+			processing_flats = True
+			continue
+		elif flats_end_names.count(name)>0:
+			processing_flats = False
+			continue
+		elif sprites_start_names.count(name)>0:
+			processing_sprites = True
+			continue
+		elif sprites_end_names.count(name)>0:
+			processing_sprites = False
+			continue
+		if processing_patches:
+			print('patch: {}'.format(name))
+			patches[name] = read_image(name,filepos,wad_file)
+		elif processing_sprites:
+			print('sprite: {}'.format(name))
+			sprites[name] = read_image(name,filepos,wad_file)
+		elif processing_flats:
+			print('flat: {}'.format(name))
+			wad_file.seek(filepos)
+			data = map(ord,struct.unpack('{}c'.format(flat_size*flat_size),wad_file.read(flat_size*flat_size)))
+			flats[name] = {'name': name,'width': flat_size, 'height': flat_size,'data': data}
+		elif name=='PLAYPAL':
+			wad_file.seek(filepos)
+			playpal = []
+			for i in range(14):
+				current = []
+				for j in range(256):
+					r,g,b = map(ord,struct.unpack('3c',wad_file.read(3)))
+					current.append((r,g,b))
+				playpal.append(current)
+		elif processing_levels:
 			if level_lumps.count(name) > 0:
 				#print '\t' + name
 				levels[level_name][name] = process_level_lump(name,filepos,wad_file,wadtype)
 			else:
 				processing_levels = False
 
-	window_size = 900
-	window_padding = 10
-	#window = pygame.display.set_mode((window_size+2*window_padding,window_size+2*window_padding))
+	def make_texture_atlas(resources,size):
+		atlas = tex.TextureAtlas({'left':0,'top':0,'width':size,'height':size})
+		atlas.insert_many(map(lambda key: resources[key],resources))
+		data = [255] * size*size
+		atlas.render(data,size,size)
+
+		writer = png.Writer(width=size,height=size,palette=playpal[0])
+		with open('{}/{}.png'.format('images','texture'),'w') as image_file:
+			writer.write_array(image_file,data)
+
+	miptex = {}
+	def 
+		miptex[key] = {'index':index}
+
+	make_texture_atlas(patches+,2048)
+	
+	def write_image(resource_type,image):
+		writer = png.Writer(width=image['width'],height=image['height'],palette=playpal[0])
+		#print image['data']
+		#print playpal[0]
+		with open('{}/{}.png'.format(resource_type,image['name']),'w') as image_file:
+			writer.write_array(image_file,image['data'])
+
+	index = 0
+	for key in patches:
+		write_image('images/patches',patches[key])
+
+	for key in flats:
+		write_image('images/flats',flats[key])
+	for key in sprites:
+		write_image('images/sprites',sprites[key])
+
 	levelnames = levels.keys()
 	levelnames.sort()
 	#for levelname in levelnames:
 	for levelname in [sys.argv[2]]:
-	#for levelname in []:
-		#window.fill((0,0,0))
 		quake = {}
 		level = levels[levelname]
 		print levelname
 		normalize_level(level)['VERTEXES']
-		#time.sleep(5)
 
-		#continue
-
-		quake = to_quake(level)
+		quake = to_quake(level,miptex)
 
 		player_origin = [0,0,0]
 		for thing in level['THINGS']:

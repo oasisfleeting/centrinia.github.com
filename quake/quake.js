@@ -819,9 +819,9 @@ $(document).ready(function() {
 			var webgl_texture_range_buffer;
 			var webgl_index_buffer;
 
-			webgl_context.disable(webgl_context.CULL_FACE);
-			//webgl_context.enable(webgl_context.CULL_FACE);
-			//webgl_context.cullFace(webgl_context.FRONT);
+			//webgl_context.disable(webgl_context.CULL_FACE);
+			webgl_context.enable(webgl_context.CULL_FACE);
+			webgl_context.cullFace(webgl_context.FRONT);
 			//webgl_context.cullFace(webgl_context.FRONT_AND_BACK);
 			if(use_blending) {
 				webgl_context.disable(webgl_context.DEPTH_TEST);
@@ -891,13 +891,14 @@ $(document).ready(function() {
 				var setMatrixUniforms = function () {
 					//var n = mv.qr()['Q'].slice(0,0,3,3);
 					//var n = mv.slice(0,0,3,3).qr()['Q'].transpose();
-					state['transformations']['normal'] = state['transformations']['modelview'].slice(0,0,3,3).inverse().transpose();
+					state['transformations']['normal'] = state['transformations']['modelview'].slice(0,0,3,3).inverse();
+					//state['transformations']['normal'] = state['transformations']['modelview'].qr()['Q'].slice(0,0,3,3).transpose();
 
 					webgl_context.uniform1i(webgl_shader_program.use_lighting_uniform, use_lighting);
 					webgl_context.uniform1i(webgl_shader_program.useTexturingUniform, use_texturing);
 					webgl_context.uniformMatrix4fv(webgl_shader_program.pMatrixUniform, false, state['transformations']['perspective'].transpose().data);
 					webgl_context.uniformMatrix4fv(webgl_shader_program.mvMatrixUniform, false, state['transformations']['modelview'].transpose().data);
-					webgl_context.uniformMatrix3fv(webgl_shader_program.nMatrixUniform, false, state['transformations']['normal'].transpose().data);
+					webgl_context.uniformMatrix3fv(webgl_shader_program.nMatrixUniform, false, state['transformations']['normal'].data);
 				}
 
 				webgl_context.viewport(0, 0, webgl_context.viewportWidth, webgl_context.viewportHeight);
@@ -1190,6 +1191,7 @@ $(document).ready(function() {
 	function select_map()
 	{
 		var map_name = $('#map_option').val();
+		var map_directory = map_name.split('/')[0];
 		bsp = null;
 
 		$.ajax({async: false,
@@ -1201,7 +1203,7 @@ $(document).ready(function() {
 
 		$.ajax({async: false,
 					type: 'GET',
-					url: 'data/quake/texture_index.json',
+					url: 'data/' + map_directory + '/texture_index.json',
 					data: null,
 					success: function(d) {texture_indexes=d;},
 					dataType: 'json'});
@@ -1292,7 +1294,7 @@ $(document).ready(function() {
 					handle_loaded_texture(texture_atlas)
 				}
 
-				texture_atlas.image.src = "data/quake/texture.png";
+				texture_atlas.image.src = "data/" + map_directory + "/texture.png";
 				return texture_atlas
 			}
 		}
@@ -1325,12 +1327,14 @@ $(document).ready(function() {
 				redraw();
 		} else {
 			if($('#canvas_option').prop('checked')) {
+				//redo_indexes = true;
 				use_webgl = false;
 				use_canvas = !use_webgl;
 				redraw();
 			}
 
 			if($('#webgl_option').prop('checked')) {
+				//redo_indexes = true;
 				use_webgl = true;
 				use_canvas = !use_webgl;
 				redraw();
@@ -1391,7 +1395,7 @@ $(document).ready(function() {
 	});
 	$('#wireframe_option').change(function() {
 		use_wireframe = $('#wireframe_option').prop('checked');
-		//redo_indexes = true;
+		redo_indexes = true;
 	});
 	$('#map_option').change(function() {
 		state['player'] = select_map();
