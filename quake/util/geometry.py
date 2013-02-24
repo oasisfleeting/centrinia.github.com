@@ -49,7 +49,7 @@ class SimplePolygon:
 # Return the two polygons that result from the split.
 	def clip(polygon,splitter,right_aux_default=None,left_aux_default=None):
 		if len(polygon.vertexes) == 0:
-			return (polygon,polygon)
+			return {'positive':polygon,'negative':polygon}
 		right_vertexes = []
 		right_auxes = []
 		left_vertexes = []

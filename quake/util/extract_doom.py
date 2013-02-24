@@ -23,10 +23,11 @@ def strip_null(s):
 level_lumps = ['THINGS','LINEDEFS','SIDEDEFS','VERTEXES','SEGS','SSECTORS','NODES','SECTORS','REJECT','BLOCKMAP']
 levels = {}
 
+TRANSPARENT_COLOR = 255
+
 def read_image(name,filepos,wad_file):
 	wad_file.seek(filepos)
 
-	TRANSPARENT_COLOR = 255
 	HEADER_SIZE = 4*2
 	width,height,left,top = struct.unpack('4h',wad_file.read(HEADER_SIZE))
 
@@ -115,9 +116,9 @@ def process_level_lump(name,filepos,wad_file,wadtype):
 			upper,lower,middle = map(strip_null,[upper,lower,middle])
 			lump = {	'x offset': x,
 						'y offset': y,
-						'upper texture': upper,
-						'lower texture': lower,
-						'middle texture': middle,
+						'upper texture': upper.lower(),
+						'lower texture': lower.lower(),
+						'middle texture': middle.lower(),
 						'sector': sector
 						}
 			lump['index'] = j
@@ -198,8 +199,8 @@ def process_level_lump(name,filepos,wad_file,wadtype):
 			floor_texture,ceiling_texture = map(strip_null,[floor_texture,ceiling_texture])
 			lump = {	'floor height': floor_height,
 						'ceiling height': ceiling_height,
-						'floor texture': floor_texture,
-						'ceiling texture': ceiling_texture,
+						'floor texture': floor_texture.lower(),
+						'ceiling texture': ceiling_texture.lower(),
 						'light level': light_level,
 						'sector type': sector_type,
 						'tag number': tag
@@ -549,7 +550,7 @@ class Face:
 			self.plane = geometry.Plane(geometry.Vector(map(rational,[0]*len(vertexes[0].elements))),rational(0))
 			self.vertexes = []
 		else:
-			normal = (three[2]-three[1]).cross(three[0]-three[1])
+			normal = (three[0]-three[1]).cross(three[2]-three[1])
 			self.plane = geometry.Plane(normal,normal.dot(three[0]))
 			min_vertex = min(vertexes)
 			min_index = vertexes.index(min_vertex)
@@ -622,22 +623,30 @@ def to_quake(level,texture_indexes):
 
 		texture_name = sidedef['{} texture'.format(texture)]
 		side_vector = augment_vertex(seg['end vertex'],0) - augment_vertex(seg['start vertex'],0)
-		side_vector = side_vector / rational(math.sqrt(float(side_vector.norm_squared())))
+		norm = rational(math.sqrt(float(side_vector.norm_squared())))
+
+		if norm!=0:
+			side_vector = side_vector / norm
+		else:
+			side_vector = side_vector*norm
+
 		try:
 			miptex_index = texture_indexes[texture_name]['index']
 		except KeyError:
 			miptex_index = None
 
-		texture = Texture([geometry.Vector([0,0,-1]),side_vector],geometry.Vector([0,0]),miptex_index)
+		up_vector = geometry.Vector([0,0,-1])
+		displacement = geometry.Vector(map(rational,[sidedef['x offset'],sidedef['y offset']]))
+		texture = Texture([side_vector,up_vector],displacement,miptex_index)
 		texture_index = textures.find_insert(texture)
 
 		vertex_indexes = []
 
 		face_vertexes = []	
-		face_vertexes.append(augment_vertex(seg['start vertex'],floor_height))
-		face_vertexes.append(augment_vertex(seg['end vertex'],floor_height))
-		face_vertexes.append(augment_vertex(seg['end vertex'],ceiling_height))
 		face_vertexes.append(augment_vertex(seg['start vertex'],ceiling_height))
+		face_vertexes.append(augment_vertex(seg['end vertex'],ceiling_height))
+		face_vertexes.append(augment_vertex(seg['end vertex'],floor_height))
+		face_vertexes.append(augment_vertex(seg['start vertex'],floor_height))
 		vertex_indexes = map(lambda face_vertex: vertexes.find_insert(face_vertex), face_vertexes)
 		return Face(face_vertexes,texture_index)
 # The visibility list is run length encoded. A span of 8*N zeros aligned to a multiple of 8 would produce the byte sequence [0,N], if N is less than 256
@@ -694,13 +703,7 @@ def to_quake(level,texture_indexes):
 		else:
 			children_nodes[1] = node['left child']
 
-		partition_line_vertex0 = geometry.Vector(map(rational,[node['partition line x'], node['partition line y'],0]))
-		partition_line_vertex1 = partition_line_vertex0 + \
-			geometry.Vector(map(rational,[node['partition line delta x'], node['partition line delta y'],0]))
-		plane = make_line(partition_line_vertex1, partition_line_vertex0)
-
-		plane_id = planes.find_insert(plane)
-		node['plane'] = planes[plane_id]
+		plane_id = planes.find_insert(node['plane'])
 		nodes.append({  'plane id': plane_id,		\
 			'children nodes': children_nodes,	\
 			'children leaves': children_leaves	\
@@ -750,7 +753,8 @@ def to_quake(level,texture_indexes):
 		if len(subsector['polygon'].vertexes)>=3:
 			floor_vertexes = map(lambda v: geometry.Vector(v.elements[0:2]+[floor_height]), subsector['polygon'].vertexes)
 			ceiling_vertexes = map(lambda v: geometry.Vector(v.elements[0:2]+[ceiling_height]), subsector['polygon'].vertexes)
-			ceiling_vertexes.reverse()
+			floor_vertexes.reverse()
+			#ceiling_vertexes.reverse()
 
 			def get_flat(texture_name):
 				try:
@@ -758,6 +762,7 @@ def to_quake(level,texture_indexes):
 				except KeyError:
 					miptex_index = None
 					print texture_name
+					print texture_indexes[texture_name]
 
 				texture = Texture([geometry.Vector([1,0,0]),geometry.Vector([0,1,0])],geometry.Vector([0,0]),miptex_index)
 				return textures.find_insert(texture)
@@ -791,7 +796,6 @@ use_log = False
 use_sector_snapping = False
 
 with open(wadname,'r') as wad_file:
-	mapnames = re.compile('MAP\d\d|E\dM\d')
 
 	HEADER_SIZE = 4+4+4
 	wad_header = wad_file.read(HEADER_SIZE)
@@ -809,16 +813,27 @@ with open(wadname,'r') as wad_file:
 	processing_flats = False
 	processing_patches = False
 	processing_sprites = False
-	patches_start_names = ['P_START','P1_START','P2_START','P3_START']
-	patches_end_names = ['P_END','P1_END','P2_END','P3_END']
-	flats_start_names = ['F_START','F1_START','F2_START']
-	flats_end_names = ['F_END','F1_END','F2_END']
-	sprites_start_names = ['S_START']
-	sprites_end_names = ['S_END']
+	mapnames = re.compile('MAP\d\d|E\dM\d')
+	textures_names = re.compile('TEXTURE\d')
+	patches_start_names = re.compile('P\d?_START')
+	patches_end_names = re.compile('P\d?_END')
+	flats_start_names = re.compile('F\d?_START')
+	flats_end_names = re.compile('F\d?_END')
+	sprites_start_names = re.compile('S\d?_START')
+	sprites_end_names = re.compile('S\d?_END')
+
+	#patches_start_names = ['P_START','P1_START','P2_START','P3_START']
+	#patches_end_names = ['P_END','P1_END','P2_END','P3_END']
+	#flats_start_names = ['F_START','F1_START','F2_START']
+	#flats_end_names = ['F_END','F1_END','F2_END']
+	#sprites_start_names = ['S_START']
+	#sprites_end_names = ['S_END']
 	patches = {}
 	flats = {}
 	sprites = {}
-	flat_size = 64
+	patch_names = []
+	texture_definitions = {}
+	FLAT_WIDTH = 64
 	for i in range(numlumps):
 		DIRECTORY_ENTRY_SIZE = 4+4+8
 		wad_file.seek(i*DIRECTORY_ENTRY_SIZE+infotableofs)
@@ -826,6 +841,7 @@ with open(wadname,'r') as wad_file:
 		filepos,size,name = struct.unpack('II8s',directory_entry)
 
 		name = strip_null(name)
+		#print 'lump: {}'.format(name)
 
 		#print name,size
 		if not mapnames.match(name) is None:
@@ -838,47 +854,79 @@ with open(wadname,'r') as wad_file:
 			levels[level_name] = {}
 			continue
 
-		if patches_start_names.count(name)>0:
+		if patches_start_names.match(name) is not None:
 			processing_patches = True
 			continue
-		elif patches_end_names.count(name)>0:
+		elif patches_end_names.match(name) is not None:
 			processing_patches = False
 			continue
-		elif flats_start_names.count(name)>0:
+		elif flats_start_names.match(name) is not None:
 			processing_flats = True
 			continue
-		elif flats_end_names.count(name)>0:
+		elif flats_end_names.match(name) is not None:
 			processing_flats = False
 			continue
-		elif sprites_start_names.count(name)>0:
+		elif sprites_start_names.match(name) is not None:
 			processing_sprites = True
 			continue
-		elif sprites_end_names.count(name)>0:
+		elif sprites_end_names.match(name) is not None:
 			processing_sprites = False
 			continue
 		if processing_patches:
 			if use_log:
 				print('patch: {}'.format(name))
-			patches[name] = read_image(name,filepos,wad_file)
+			patch_name = name.lower()
+			patches[patch_name] = read_image(patch_name,filepos,wad_file)
 		elif processing_sprites:
 			if use_log:
 				print('sprite: {}'.format(name))
-			sprites[name] = read_image(name,filepos,wad_file)
+			sprite_name = name.lower()
+			sprites[sprite_name] = read_image(sprite_name,filepos,wad_file)
 		elif processing_flats:
 			if use_log:
 				print('flat: {}'.format(name))
 			wad_file.seek(filepos)
-			data = map(ord,struct.unpack('{}c'.format(flat_size*flat_size),wad_file.read(flat_size*flat_size)))
-			flats[name] = {'name': name,'width': flat_size, 'height': flat_size,'data': data}
+			data = map(ord,struct.unpack('{}c'.format(FLAT_WIDTH*FLAT_WIDTH),wad_file.read(FLAT_WIDTH*FLAT_WIDTH)))
+			flat_name = name.lower()
+			flats[flat_name] = {'name': flat_name,'width': FLAT_WIDTH, 'height': FLAT_WIDTH,'data': data}
 		elif name=='PLAYPAL':
 			wad_file.seek(filepos)
 			playpal = []
-			for i in range(14):
+			PLAYPAL_COUNT=14
+			for i in range(PLAYPAL_COUNT):
 				current = []
 				for j in range(256):
 					r,g,b = map(ord,struct.unpack('3c',wad_file.read(3)))
 					current.append((r,g,b))
 				playpal.append(current)
+		elif name=='PNAMES':
+			wad_file.seek(filepos)
+			map_patches_count = struct.unpack('I',wad_file.read(4))[0]
+			for i in range(map_patches_count):
+				patch_name = struct.unpack('8s',wad_file.read(8))[0]
+				patch_names.append(strip_null(patch_name).lower())
+		elif textures_names.match(name) is not None:
+			wad_file.seek(filepos)
+			texture_count = struct.unpack('I',wad_file.read(4))[0]
+			print texture_count
+			offsets = struct.unpack('{}I'.format(texture_count),wad_file.read(4*texture_count))
+			for offset in offsets:
+				wad_file.seek(filepos+offset)
+				TEXTURE_SIZE = 8+4+2+2+4+2
+				texture_name,masked,width,height,column_directory,patch_count = \
+					struct.unpack('8sIhhIh',wad_file.read(TEXTURE_SIZE))
+				texture_name = strip_null(texture_name).lower()
+				patches_definition = []
+				for i in range(patch_count):
+					originx,originy,patch_index,stepdir,colormap = struct.unpack('5h',wad_file.read(5*2))
+					patches_definition.append({ 'origin':[originx,originy],'patch index':patch_index })
+
+				texture_definitions[texture_name] = {	\
+					'name': texture_name,				\
+					'width': width,							\
+					'height': height,							\
+					'patches': patches_definition }
+
 		elif processing_levels:
 			if level_lumps.count(name) > 0:
 				#print '\t' + name
@@ -886,15 +934,34 @@ with open(wadname,'r') as wad_file:
 			else:
 				processing_levels = False
 
-	def make_texture_atlas(resources,size):
+	def make_texture_atlas(resources,size,padding):
 		atlas = tex.TextureAtlas({'left':0,'top':0,'width':size,'height':size})
+		for (_,resource) in resources.items():
+			data = resource['data']
+			result_width = resource['width']+padding*2
+			result_height = resource['height']+padding*2
+			result = [TRANSPARENT_COLOR]*result_width*result_height
+			for x in range(result_width):
+				for y in range(result_height):
+					tx = (x-padding)%resource['width']
+					ty = (y-padding)%resource['height']
+					color = data[ty*resource['width']+tx]
+					if color != TRANSPARENT_COLOR:
+						result[y*result_width+x] =	color
+			resource['data'] = result
+			resource['width'] = result_width
+			resource['height'] = result_height
+
 		atlas.insert_many(map(lambda key: resources[key],resources))
-		data = [255] * size*size
+
+		data = [TRANSPARENT_COLOR] * size*size
 		atlas.render(data,size,size)
 
 		def handler(rect,resource,current):
 			name = resource['name']
-			entry = {'begin': [rect['left'],rect['top']],'size':[resource['width'],resource['height']],'texture name':name,'index':current['index']}
+			entry = {'begin': [rect['left']+padding,rect['top']+padding],					\
+						'size':[resource['width']-padding*2,resource['height']-padding*2],				\
+						'texture name':name,'index':current['index']}
 			current['texture indexes'][name] =  entry
 			current['index'] += 1
 			return current
@@ -907,8 +974,42 @@ with open(wadname,'r') as wad_file:
 		return texture_indexes
 
 	#make_texture_atlas(patches,2048)
-	texture_index = make_texture_atlas(dict(sprites.items()+patches.items()+flats.items()),512*8)
-	#texture_index = make_texture_atlas(dict(patches.items()+flats.items()),2048)
+	#texture_index = make_texture_atlas(dict(sprites.items()+patches.items()+flats.items()),512*8)
+
+	wall_textures = {}
+	resources = dict(sprites.items() + patches.items() + flats.items())
+	for (name,texture) in texture_definitions.items():
+		texture_width = texture['width']
+		texture_height = texture['height']
+
+		texture_data = [TRANSPARENT_COLOR] * texture_width * texture_height
+		for patch in texture['patches']:
+			patch_name = patch_names[patch['patch index']]
+			try:
+				patch_image = resources[patch_name]
+				patch_data = patch_image['data']
+				patch_width = patch_image['width']
+				patch_height = patch_image['height']
+
+				origin = patch['origin']
+				for x in range(patch_width):
+					tx = origin[0]+x
+					if 0 <= tx and tx < texture_width:
+						for y in range(patch_height):
+							ty = origin[1]+y
+							if 0 <= ty and ty < texture_height:
+								texture_data[ty*texture_width+tx] = patch_data[y*patch_width+x]
+			except KeyError:
+				print patch_name
+
+		wall_textures[name] = {			\
+			'name': name,					\
+			'width': texture_width,		\
+			'height': texture_height,	\
+			'data': texture_data }
+
+	print sorted(flats.keys())
+	texture_index = make_texture_atlas(dict(wall_textures.items()+flats.items()),4096,2)
 
 	def write_image(resource_type,image):
 		writer = png.Writer(width=image['width'],height=image['height'],palette=playpal[0])
@@ -939,6 +1040,7 @@ with open(wadname,'r') as wad_file:
 	levelnames = levels.keys()
 	levelnames.sort()
 	levelset = sys.argv[2:]
+	levelset = levelnames
 
 	with open('images/' + 'texture_index' + '.json','w') as fp:
 		json.dump(output_texture_index(texture_index,levelset),fp)
@@ -948,7 +1050,7 @@ with open(wadname,'r') as wad_file:
 		quake = {}
 		level = levels[levelname]
 		print levelname
-		normalize_level(level)['VERTEXES']
+		level = normalize_level(level)
 
 		quake = to_quake(level,texture_index)
 
@@ -957,6 +1059,16 @@ with open(wadname,'r') as wad_file:
 			if thing['type'] == 1:
 				player_origin = [thing['x'],thing['y'],0]
 				break
+		def find_node(level,pos):
+			current_node = level['NODES'][-1]
+			is_node = True
+			while is_node:
+				is_right = current_node['plane'].normal_equation(pos)>0
+					  				
+				(is_node,current_node) = select_node_child(current_node,is_right,level)
+			return current_node
+
+		player_origin[2] = float(find_node(level,geometry.Vector(map(rational,player_origin)))['sector']['floor height']+10)
 
 		quake['player start'] = {	'origin': player_origin,
 											'angle': 0

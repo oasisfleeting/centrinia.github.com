@@ -350,7 +350,13 @@ Plane.prototype.closest_to_point = function (point) {
 
 function Face(definition,level,buffers) {
 	var indexes = definition['vertices index'];
-
+	if(indexes.length<3) {
+		this.vertices = null;
+		this.plane = null;
+		this.edges = null;
+		this.triangles = null;
+		return;
+	}
 	var head = indexes[0];
 	var tail1 = indexes.slice(1,indexes.length-1);
 	var tail2 = indexes.slice(2,indexes.length);
@@ -422,11 +428,13 @@ function Face(definition,level,buffers) {
 
 	var levelname = level['filename'];
 	var texture_index = definition['texture index'];
-	var texinfo = level['textures'][texture_index];
-	if(texture_indexes[levelname]) {
-		var atlas_entry = texture_indexes[levelname][texinfo['miptex index']];
-	} else {
-		var atlas_entry = texture_indexes['start.bsp'][texinfo['miptex index']];
+	var atlas_entry = {'begin':[0,0],'size':[0,0],'texture name':''};
+	var texinfo = {'displacements':[0,0],'vectors':[[0,0,-1],[1,0,0]]};
+	if(texture_index!=null) {
+		texinfo = level['textures'][texture_index];
+		if(texture_indexes[levelname] && texinfo['miptex index'] != null) {
+				var atlas_entry = texture_indexes[levelname][texinfo['miptex index']];
+		}
 	}
 	function compute_texture_coord(vertex,vector,dist) {
 		return vertex.dot(vector)+dist;
@@ -444,8 +452,10 @@ function Face(definition,level,buffers) {
 			var texrange = atlas_entry['begin'].concat(atlas_entry['size']);
 			texrange[0] /= texrange[2];
 			texrange[1] /= texrange[3];
-
-			if(atlas_entry['texture name'].substr(0,3) == 'sky') {
+			var sky_regex = /^sky|^f_sky|^rsky\d/;
+			if(sky_regex.test(atlas_entry['texture name']))
+			//if(atlas_entry['texture name'].substr(0,3) == 'sky') 
+			{
 				texrange[2] = -texrange[2];
 				texrange[3] = -texrange[3];
 			}
@@ -875,7 +885,7 @@ $(document).ready(function() {
 			//mat4.perspective(60, canvas_element.width / canvas_element.height, 1, 10000.0, pMatrix);
 			//var pMatrix = perspective_matrix(60, canvas_element.width / canvas_element.height, 1, 10000);
 			state['transformations']['perspective'] =
-				perspective_matrix(60, canvas_element.width / canvas_element.height, 0.01, 100);
+				perspective_matrix(60, canvas_element.width / canvas_element.height, 0.001, 100);
 
 			state['transformations']['modelview'] = Matrix.identity(4);
 			state['transformations']['modelview'] = state['transformations']['modelview'].scale([1/100,1/100,1/100]);
@@ -947,19 +957,25 @@ $(document).ready(function() {
 			leaves.forEach(function (leaf) {
 				leaf.face_indexes.forEach(function(face_index) {
 					if(use_canvas) {
-						indexes.push(level['faces'][face_index].object['edges'].map(function (primitive_indexes) {
-							return primitive_indexes[0];
-						}));
+						var primitives = level['faces'][face_index].object['edges'];
+						if(primitives) {
+							indexes.push(primitives.map(function (primitive_indexes) {
+								return primitive_indexes[0];
+							}));
+						}
 						/*faces[face_index]['triangles'].forEach(function(primitive_indexes) {
 							indexes.push(primitive_indexes);
 						});*/
 					} else {
-						level['faces'][face_index].object[primitive_key].forEach(function(primitive_indexes) {
-							/*primitive_indexes.forEach(function (vertex_index) {
-								indexes.push(vertex_index);
-							});*/
-							indexes.push(primitive_indexes);
-						});
+						var primitives = level['faces'][face_index].object[primitive_key];
+						if(primitives) {
+							primitives.forEach(function(primitive_indexes) {
+								/*primitive_indexes.forEach(function (vertex_index) {
+									indexes.push(vertex_index);
+								});*/
+								indexes.push(primitive_indexes);
+							});
+						}
 					}
 				});
 			});
@@ -1101,7 +1117,7 @@ $(document).ready(function() {
 
 		function setup_pvs(leaf) {
 			var visible_leaves;
-			if(visilist && !use_wireframe) {
+			if(visilist  && !use_wireframe) {
 				var list_index = leaf.visilist_start;
 				visible_leaves = [leaf];
 				for(var i=1;i<level['leaves'].length && level['leaves'][i]['visilist start']>=0;list_index++) {
