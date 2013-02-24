@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import matplotlib.pyplot as plt
+import math
 import struct
 import re
 import json
@@ -194,6 +195,7 @@ def process_level_lump(name,filepos,wad_file,wadtype):
 			floor_texture,ceiling_texture,	\
 			light_level,sector_type,tag		\
 				= struct.unpack('2h8s8s3h',wad_file.read(SECTOR_SIZE))
+			floor_texture,ceiling_texture = map(strip_null,[floor_texture,ceiling_texture])
 			lump = {	'floor height': floor_height,
 						'ceiling height': ceiling_height,
 						'floor texture': floor_texture,
@@ -210,7 +212,7 @@ def process_level_lump(name,filepos,wad_file,wadtype):
 	return lumps
 
 def rational(x):
-	return mpq(x,1)
+	return mpq(x)
 
 def select_node_child(node,right,level):
 	SSECTOR_MASK = 0x8000
@@ -367,19 +369,21 @@ def normalize_level(level):
 				right_polygon = geometry.SimplePolygon(next_polygon_vertexes,next_polygon_auxes)
 		#return right_polygon
 
-		for seg in map(lambda index: level['SEGS'][index+subsector['seg offset']],range(subsector['seg count'])):
-			seg_vertexes = map(lambda key: level['VERTEXES'][seg[key]],['start vertex','end vertex'])
+		if use_sector_snapping:
+			if len(right_polygon.vertices)>0:
+				for seg in map(lambda index: level['SEGS'][index+subsector['seg offset']],range(subsector['seg count'])):
+					seg_vertexes = map(lambda key: level['VERTEXES'][seg[key]],['start vertex','end vertex'])
 
-			for vertex in seg_vertexes:
-				vector = vertex['vector']
-				closest = right_polygon.vertexes[0]
-				closest_dist = (closest-vector).dot(closest-vector)
-				for v in right_polygon.vertexes[1:]:
-					dist = (v-vector).dot(v-vector)
-					if closest_dist > dist:
-						closest_dist = dist
-						closest = v
-				vertex['vector'] = closest
+					for vertex in seg_vertexes:
+						vector = vertex['vector']
+						closest = right_polygon.vertexes[0]
+						closest_dist = (closest-vector).dot(closest-vector)
+						for v in right_polygon.vertexes[1:]:
+							dist = (v-vector).dot(v-vector)
+							if closest_dist > dist:
+								closest_dist = dist
+							closest = v
+						vertex['vector'] = closest
 		return right_polygon
 
 	def modify_subsector(polygon, subsector):
@@ -438,27 +442,29 @@ def normalize_level(level):
 		result.reverse()
 		return result
 
-	#bounds = level['VERTEXES'][0]['vector'].elements[:2]
-	#bounds = [list(bounds),list(bounds)]
-	#print bounds[0]
-	#print min(bounds[0][0],bounds[0][1])
-	#print max(bounds[0][0],bounds[0][1])
-	#for vertex in level['VERTEXES']:
-	#	xy = vertex['vector'].elements[:2]
-		#print x,y,bounds
-		#print x,bounds[0][0], min(x,bounds[0][0])
+	if True:
+		bounds = level['VERTEXES'][0]['vector'].elements[:2]
+		bounds = [list(bounds),list(bounds)]
+		#print bounds[0]
+		#print min(bounds[0][0],bounds[0][1])
+		#print max(bounds[0][0],bounds[0][1])
+		for vertex in level['VERTEXES']:
+			xy = vertex['vector'].elements[:2]
+			#print x,y,bounds
+			#print x,bounds[0][0], min(x,bounds[0][0])
 
-	#	bounds[0][0] = min(bounds[0][0],xy[0])
-	#	bounds[0][1] = min(bounds[0][1],xy[1])
-	#	bounds[1][0] = max(bounds[1][0],xy[0])
-	#	bounds[1][1] = max(bounds[1][1],xy[1])
+			bounds[0][0] = min(bounds[0][0],xy[0])
+			bounds[0][1] = min(bounds[0][1],xy[1])
+			bounds[1][0] = max(bounds[1][0],xy[0])
+			bounds[1][1] = max(bounds[1][1],xy[1])
 
-	#polygon = map(Vector,													\
-	#	[[bounds[0][0],bounds[0][1],rational(0)],		\
-	#		[bounds[1][0],bounds[0][1],rational(0)],		\
-	#		[bounds[1][0],bounds[1][1],rational(0)],		\
-	#		[bounds[0][0],bounds[1][1],rational(0)]]))
-	polygon = compute_bound(map(lambda v: v['vector'], level['VERTEXES']))
+		polygon = geometry.SimplePolygon(map(geometry.Vector,						\
+			[[bounds[0][0],bounds[0][1],rational(0)],									\
+				[bounds[1][0],bounds[0][1],rational(0)],								\
+				[bounds[1][0],bounds[1][1],rational(0)],								\
+				[bounds[0][0],bounds[1][1],rational(0)]]))
+	else:
+ 		polygon = compute_bound(map(lambda v: v['vector'], level['VERTEXES']))
 	
 	if use_plot:
 		plt.clf()
@@ -523,8 +529,20 @@ class Rational:
 	def __cmp__(a,b):
  		return cmp(a.num*b.den,b.num*a.den)
 
+class Texture:
+	#texture = Texture({'vectors': [[0,0,-1],side_vector],'displacements':[0,0],'miptex index':miptex_index})
+	def __init__(self,vectors,displacements,miptex_index=None):
+		self.miptex_index = miptex_index
+		self.vectors = vectors
+		self.displacements = displacements
+	
+	def __cmp__(a,b):
+		return cmp((a.vectors,a.displacements,a.miptex_index),(b.vectors,b.displacements,b.miptex_index))
+	def to_dict(self,finder):
+		return {'vectors': map(lambda x:x.to_dict(finder),self.vectors),'displacements': self.displacements.to_dict(finder),'miptex index':self.miptex_index}
+
 class Face:
-	def __init__(self,vertexes,texture_index):
+	def __init__(self,vertexes,texture_index=None):
 		self.texture_index = texture_index
 		three = Face.find_noncolinear(vertexes)
 		if three is None:
@@ -560,7 +578,6 @@ class Face:
 		return cmp((a.plane,a.vertexes),(b.plane,b.vertexes))
 	def to_dict(self,finder):
 		return { 'plane id': finder('plane',self.plane),
-					'texture index': 0,
 					'vertices index': map(lambda vertex: finder('vertex',vertex), self.vertexes),
 					'front side': True,
 					'texture index': self.texture_index
@@ -591,8 +608,8 @@ class IndexMap:
 	def __getitem__(self,index):
 		return self.reverse[index]
 
-def to_quake(level,miptex):
-	def make_wall_face(planes,vertexes,seg,floor_height,ceiling_height,texture):
+def to_quake(level,texture_indexes):
+	def make_wall_face(planes,vertexes,textures,seg,floor_height,ceiling_height,texture):
 		def augment_vertex(index,elevation):
 			vertex = geometry.Vector(level['VERTEXES'][index]['vector'].elements)
 			vertex.elements[2] = elevation
@@ -605,8 +622,13 @@ def to_quake(level,miptex):
 
 		texture_name = sidedef['{} texture'.format(texture)]
 		side_vector = augment_vertex(seg['end vertex'],0) - augment_vertex(seg['start vertex'],0)
-		miptex_index = miptex[texture_name]['index']
-		texture = {'vectors': [[0,0,-1],side_vector],'displacements':[0,0],'miptex index':miptex_index}
+		side_vector = side_vector / rational(math.sqrt(float(side_vector.norm_squared())))
+		try:
+			miptex_index = texture_indexes[texture_name]['index']
+		except KeyError:
+			miptex_index = None
+
+		texture = Texture([geometry.Vector([0,0,-1]),side_vector],geometry.Vector([0,0]),miptex_index)
 		texture_index = textures.find_insert(texture)
 
 		vertex_indexes = []
@@ -703,7 +725,7 @@ def to_quake(level,miptex):
 		for seg_index in range(seg_first,seg_count+seg_first):
 			seg = level['SEGS'][seg_index]
 			if level['LINEDEFS'][seg['linedef']]['flags'] & 0x04 == 0: # Not two sided
-				face = make_wall_face(planes,vertexes,seg,floor_height, ceiling_height,'middle')
+				face = make_wall_face(planes,vertexes,textures,seg,floor_height, ceiling_height,'middle')
 				if len(face.vertexes)>0:
 					face_indexes.append(faces.find_insert(face))
 			else:
@@ -717,11 +739,11 @@ def to_quake(level,miptex):
 				next_ceiling_height = next_sector['ceiling height']
 
 				if next_floor_height > floor_height:
-					floor_face = make_wall_face(planes,vertexes,seg,floor_height, next_floor_height,'lower')
+					floor_face = make_wall_face(planes,vertexes,textures,seg,floor_height, next_floor_height,'lower')
 					if len(floor_face.vertexes)>0:
 						face_indexes.append(faces.find_insert(floor_face))
 				if next_ceiling_height < ceiling_height:
-					ceiling_face = make_wall_face(planes,vertexes,seg,next_ceiling_height,ceiling_height,'upper')
+					ceiling_face = make_wall_face(planes,vertexes,textures,seg,next_ceiling_height,ceiling_height,'upper')
 					if len(ceiling_face.vertexes)>0:
 						face_indexes.append(faces.find_insert(ceiling_face))
 
@@ -730,12 +752,18 @@ def to_quake(level,miptex):
 			ceiling_vertexes = map(lambda v: geometry.Vector(v.elements[0:2]+[ceiling_height]), subsector['polygon'].vertexes)
 			ceiling_vertexes.reverse()
 
-			for vertex in floor_vertexes:
-				vertex.elements[2] = floor_height
-			for vertex in ceiling_vertexes:
-				vertex.elements[2] = ceiling_height
-			floor_face = Face(floor_vertexes)
-			ceiling_face = Face(ceiling_vertexes)
+			def get_flat(texture_name):
+				try:
+					miptex_index = texture_indexes[texture_name]['index']
+				except KeyError:
+					miptex_index = None
+					print texture_name
+
+				texture = Texture([geometry.Vector([1,0,0]),geometry.Vector([0,1,0])],geometry.Vector([0,0]),miptex_index)
+				return textures.find_insert(texture)
+
+			floor_face = Face(floor_vertexes,get_flat(sector['floor texture']))
+			ceiling_face = Face(ceiling_vertexes,get_flat(sector['ceiling texture']))
 			face_indexes.append(faces.find_insert(floor_face))
 			face_indexes.append(faces.find_insert(ceiling_face))
 
@@ -750,9 +778,9 @@ def to_quake(level,miptex):
 				'leaves': leaves,
 				'planes': planes.reverse,
 				'vertices': vertexes.reverse,
+				'textures': textures.reverse,
 				'visibility list': None, # visilist
-				'root node': len(nodes)-1,
-				'textures': textures.reverse
+				'root node': len(nodes)-1
 				}
 
 
@@ -760,6 +788,7 @@ wadname = sys.argv[1]
 
 use_plot = False
 use_log = False
+use_sector_snapping = False
 
 with open(wadname,'r') as wad_file:
 	mapnames = re.compile('MAP\d\d|E\dM\d')
@@ -828,13 +857,16 @@ with open(wadname,'r') as wad_file:
 			processing_sprites = False
 			continue
 		if processing_patches:
-			print('patch: {}'.format(name))
+			if use_log:
+				print('patch: {}'.format(name))
 			patches[name] = read_image(name,filepos,wad_file)
 		elif processing_sprites:
-			print('sprite: {}'.format(name))
+			if use_log:
+				print('sprite: {}'.format(name))
 			sprites[name] = read_image(name,filepos,wad_file)
 		elif processing_flats:
-			print('flat: {}'.format(name))
+			if use_log:
+				print('flat: {}'.format(name))
 			wad_file.seek(filepos)
 			data = map(ord,struct.unpack('{}c'.format(flat_size*flat_size),wad_file.read(flat_size*flat_size)))
 			flats[name] = {'name': name,'width': flat_size, 'height': flat_size,'data': data}
@@ -860,16 +892,24 @@ with open(wadname,'r') as wad_file:
 		data = [255] * size*size
 		atlas.render(data,size,size)
 
+		def handler(rect,resource,current):
+			name = resource['name']
+			entry = {'begin': [rect['left'],rect['top']],'size':[resource['width'],resource['height']],'texture name':name,'index':current['index']}
+			current['texture indexes'][name] =  entry
+			current['index'] += 1
+			return current
+
+		texture_indexes = atlas.traverse(handler,{'index':1,'texture indexes':{}})['texture indexes']
+
 		writer = png.Writer(width=size,height=size,palette=playpal[0])
 		with open('{}/{}.png'.format('images','texture'),'w') as image_file:
 			writer.write_array(image_file,data)
+		return texture_indexes
 
-	miptex = {}
-	def 
-		miptex[key] = {'index':index}
+	#make_texture_atlas(patches,2048)
+	texture_index = make_texture_atlas(dict(sprites.items()+patches.items()+flats.items()),512*8)
+	#texture_index = make_texture_atlas(dict(patches.items()+flats.items()),2048)
 
-	make_texture_atlas(patches+,2048)
-	
 	def write_image(resource_type,image):
 		writer = png.Writer(width=image['width'],height=image['height'],palette=playpal[0])
 		#print image['data']
@@ -886,16 +926,31 @@ with open(wadname,'r') as wad_file:
 	for key in sprites:
 		write_image('images/sprites',sprites[key])
 
+	def output_texture_index(indexes,levelset):
+		result = {}
+		for (_,entry) in indexes.items():
+			result[entry['index']] = entry
+		texture_index = {}
+		for levelname in levelset:
+			filename = levelname.lower()+'.bsp'
+			texture_index[filename] = result
+		return texture_index
+
 	levelnames = levels.keys()
 	levelnames.sort()
+	levelset = sys.argv[2:]
+
+	with open('images/' + 'texture_index' + '.json','w') as fp:
+		json.dump(output_texture_index(texture_index,levelset),fp)
+
 	#for levelname in levelnames:
-	for levelname in [sys.argv[2]]:
+	for levelname in levelset:
 		quake = {}
 		level = levels[levelname]
 		print levelname
 		normalize_level(level)['VERTEXES']
 
-		quake = to_quake(level,miptex)
+		quake = to_quake(level,texture_index)
 
 		player_origin = [0,0,0]
 		for thing in level['THINGS']:
@@ -908,22 +963,15 @@ with open(wadname,'r') as wad_file:
 											}
 
 		quake['filename'] = levelname.lower() + '.bsp'
-		quake['textures'] = [{	'displacements': [0,0],
-										'miptex index': 0,
-										'vectors': [[1,0,0],[0,1,0]]
-										}]
+		#quake['textures'] = [{	'displacements': [0,0],
+		#								'miptex index': null,
+		#								'vectors': [[1,0,0],[0,1,0]]
+		#								}]
 
 		#print len(quake['vertices'])
 		#print quake['vertices']
 		with open('doom/' + levelname.lower() + '.json','w') as fp:
 			json.dump(quake,fp)
 
-		#print('\t{}: {}'.format(thingname,parse_reject(sector_count,levels[levelname][thingname][0]['reject'])))
-		#for thingname in levels[levelname].keys():
-		#print('\t{}: {}'.format(thingname,levels[levelname][thingname]))
 	print 'Finished'
-	#while True:
-	#	for event in pygame.event.get():
-	#		if event.type == pygame.QUIT:
-	#			sys.exit(0)
 

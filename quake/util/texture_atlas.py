@@ -52,13 +52,27 @@ class TextureAtlas:
 		#x += ']'
 		return x
 	def render(self,data,width,height):
+		#if self.image is not None:
+		#	for i in range(self.image['width']):
+		#		for j in range(self.image['height']):
+		#			x = self.rect['left'] + i
+		#			y = self.rect['top'] + j
+		#			data[y*width+x] = self.image['data'][j*self.image['width']+i]
+		#for child in self.children:
+		#	if child is not None:
+		#		child.render(data,width,height)
+		def handler(rect,resource,_):
+			for i in range(resource['width']):
+				for j in range(resource['height']):
+					x = rect['left'] + i
+					y = rect['top'] + j
+					data[y*width+x] = resource['data'][j*resource['width']+i]
+		self.traverse(handler)
+
+	def traverse(self,handler,accumulator=None):
 		if self.image is not None:
-			for i in range(self.image['width']):
-				for j in range(self.image['height']):
-					x = self.rect['left'] + i
-					y = self.rect['top'] + j
-					data[y*width+x] = self.image['data'][j*self.image['width']+i]
+			accumulator = handler(self.rect,self.image,accumulator)
 		for child in self.children:
 			if child is not None:
-				child.render(data,width,height)
-
+				accumulator = child.traverse(handler,accumulator)
+		return accumulator

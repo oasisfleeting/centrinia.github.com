@@ -108,6 +108,8 @@ class Vector:
 		return Vector([x,y,z])
 	def dot(a,b):
 		return reduce(lambda acc,x: acc+x,map(lambda (x,y):x*y,zip(a.elements,b.elements)),rational(0))
+	def norm_squared(self):
+		return self.dot(self)
 	def __binop(a,b,f):
 		return Vector(map(lambda (x,y): f(x,y), zip(a.elements,b.elements)))
 	def __add__(a,b):
