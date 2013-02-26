@@ -761,8 +761,9 @@ def to_quake(level,texture_indexes):
 					miptex_index = texture_indexes[texture_name]['index']
 				except KeyError:
 					miptex_index = None
+					print 'No texture:'
 					print texture_name
-					print texture_indexes[texture_name]
+					print sorted(texture_indexes.keys())
 
 				texture = Texture([geometry.Vector([1,0,0]),geometry.Vector([0,1,0])],geometry.Vector([0,0]),miptex_index)
 				return textures.find_insert(texture)
@@ -841,7 +842,7 @@ with open(wadname,'r') as wad_file:
 		filepos,size,name = struct.unpack('II8s',directory_entry)
 
 		name = strip_null(name)
-		#print 'lump: {}'.format(name)
+		print 'lump: {}'.format(name)
 
 		#print name,size
 		if not mapnames.match(name) is None:
@@ -1000,7 +1001,9 @@ with open(wadname,'r') as wad_file:
 							if 0 <= ty and ty < texture_height:
 								texture_data[ty*texture_width+tx] = patch_data[y*patch_width+x]
 			except KeyError:
+				print 'No patch:'
 				print patch_name
+
 
 		wall_textures[name] = {			\
 			'name': name,					\
