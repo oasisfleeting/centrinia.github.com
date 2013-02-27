@@ -1,5 +1,6 @@
 "use strict";
 
+var foo = 0;
 var texture_images;
 var log_draw_count;
 var log_traverse_count;
@@ -65,10 +66,21 @@ var config = {
 			'binding': 'move down',
 			'key' : 'down cursor key',
 			'modifiers' : ['alt key']
+		},
+		{
+			'binding': 'look up',
+			'key' : 'up cursor key',
+			'modifiers' : ['ctrl key']
+		},
+		{
+			'binding': 'look down',
+			'key' : 'down cursor key',
+			'modifiers' : ['ctrl key']
 		}
 	],
 	'keycodes' : {
 		'modifiers' : {
+			17 : 'ctrl key',
 			18 : 'alt key'
 		},
 		'keys' : {
@@ -95,7 +107,8 @@ var config = {
 	'viewbob' : {
 		'amplitude' : 0.0,
 		'frequency' : 0.07
-	}
+	},
+	'field of view': 90
 };
 
 function clamp(value, low,high) {
@@ -877,15 +890,14 @@ $(document).ready(function() {
 	var redraw = function() {
 		function setup_scene() {
 			var perspective_matrix = function (fov, aspect, near, far) {
+				fov += 3*Math.sin((new Date().getTime())*(12/60)*Math.PI*2/1000);
+				foo++;
 				var t = near*Math.tan(fov*Math.PI/360);
 				var r = t*aspect;
 				return Matrix.frustum([[-r,r],[-t,t],[near,far]]);
 			};
-			//mat4.perspective(60, webgl_context.viewportWidth / webgl_context.viewportHeight, 0.1, 100.0, pMatrix);
-			//mat4.perspective(60, canvas_element.width / canvas_element.height, 1, 10000.0, pMatrix);
-			//var pMatrix = perspective_matrix(60, canvas_element.width / canvas_element.height, 1, 10000);
 			state['transformations']['perspective'] =
-				perspective_matrix(60, canvas_element.width / canvas_element.height, 0.001, 100);
+				perspective_matrix(config['field of view'], canvas_element.width / canvas_element.height, 0.001, 100);
 
 			state['transformations']['modelview'] = Matrix.identity(4);
 			state['transformations']['modelview'] = state['transformations']['modelview'].scale([1/100,1/100,1/100]);
@@ -1507,14 +1519,9 @@ $(document).ready(function() {
 		return true;
 	}
 	(function () {
-		//"use strict";
 		var depressed = [];
 		window.onkeydown = function (event) {
 				event.preventDefault();
-			if(Object.keys(config['keycodes']['keys']).indexOf(event.which.toString()) >= 0 ||
-				Object.keys(config['keycodes']['modifiers']).indexOf(event.which.toString()) >= 0 
-			) {
-			}
 			if (depressed.indexOf(event.which) < 0) {
 				depressed.push(event.which);
 			}
@@ -1551,6 +1558,7 @@ $(document).ready(function() {
 				//var horizontal_scale = -2.0e-2;
 				var vertical_scale = config['analog stick scale']/config['analog stick radius'];
 				var horizontal_scale = -config['analog stick scale']/config['analog stick radius'];
+
 				var up_amount = change[1] * vertical_scale;
 				state['player'].pitch_angle = clamp(state['player'].pitch_angle + up_amount *2*Math.PI/360,-Math.PI/2,Math.PI/2);
 
@@ -1617,6 +1625,16 @@ $(document).ready(function() {
 				break;
 				case 'turn right': {
 						state['player'].turn_left(-config['movement']['turn angle'] * 2 * Math.PI / 360);
+				}
+				break;
+				case 'look up': {
+					var up_amount = 5;
+					state['player'].pitch_angle = clamp(state['player'].pitch_angle - up_amount*2*Math.PI/360,-Math.PI/2,Math.PI/2);
+				}
+				break;
+				case 'look down': {
+					var up_amount = -5;
+					state['player'].pitch_angle = clamp(state['player'].pitch_angle - up_amount*2*Math.PI/360,-Math.PI/2,Math.PI/2);
 				}
 				break;
 				//}}}

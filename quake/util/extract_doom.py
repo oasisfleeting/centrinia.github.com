@@ -411,7 +411,7 @@ def normalize_level(level):
 
 # Split the polygon along the node-splitter. Continue splitting on child nodes and assign the current polygon for child subsectors.
 	def split_polygon(node,polygon):
-		polygons = polygon.clip(node['plane'],True,True)
+		polygons = polygon.clip(node['plane'],node,node)
 
 		for polygon_side in ['positive','negative']:
 			next_polygon = polygons[polygon_side]
@@ -429,6 +429,20 @@ def normalize_level(level):
 				child['polygon'] = flat
 				if use_plot:
 					draw_polygon(flat)
+	def get_polygons(node):
+		polygons = []
+		for is_right in [True,False]:
+			(is_node,child) = select_node_child(node,is_right,level)
+			if is_node:
+				polygons.append(child)
+			else:
+				polygons += get_polygons(child)
+		return polygons
+
+	def update_polygon_borders(polygons):
+		for polygon in polygons:
+			for aux in polygon.auxillaries:
+				aux['adjacent polygons'].append(polygon)
 
 	def draw_subsectors(node,depth):
 		for is_right in [True,False]:

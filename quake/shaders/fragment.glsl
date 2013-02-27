@@ -53,12 +53,16 @@ vec2 cubemap(vec3 vector)
 
 void main(void) {
 	vec3 uAmbientColor = vec3(0.2,0.2,0.2);
-	vec3 uPointLightingColor = vec3(0.7,0.6,0.3)*5.0;
+	vec3 uPointLightingColor = vec3(0.7,0.6,0.3)*1.5;
 	vec3 lantern_color = vec3(0.1,0.2,0.7)*2.0;
+	/*vec3 uAmbientColor = vec3(0.0,1.0,0.0);
+	vec3 uPointLightingColor = vec3(1.0,0.0,0.0)*2.0;
+	vec3 lantern_color = vec3(0.0,0.0,1.0)*2.0;*/
 	//vec3 lantern_color = vec3(0.1,0.2,0.7)*0.0;
 
 	vec3 lightWeighting = vec3(1,1,1);
-	vec4 texcolor = vec4((vNormal+1.0)/2.0,1.0);
+	vec4 texcolor = vec4(1,1,1,1)/3.0;
+	//vec4 texcolor = vec4((vNormal+1.0)/2.0,1.0);
 	if(vTextureRange.z > 0.0) 
 	{
 		if(uUseTexturing) {
@@ -68,10 +72,11 @@ void main(void) {
 		}
 
 		if(use_lighting) {
-			vec3 lightDirection = normalize(vec3(0,0,0)-view_position.xyz);
-			//vec3 lightDirection = normalize(vec3(0,0,1));
+			//vec3 lightDirection = normalize(vec3(0,0,0)-view_position.xyz);
+			vec3 lightDirection = normalize(vec3(0,0,1));
 
-			float directionalLightWeighting = max(dot(vTransformedNormal, lightDirection), 0.0);
+			//float directionalLightWeighting = max(dot(vTransformedNormal, lightDirection), 0.0);
+			float directionalLightWeighting = max(dot(normalize(uNMatrix*vNormal), lightDirection), 0.0);
 
 			float inverse_square = pow(length(view_position.xyz),-2.0);
 			lightWeighting = uAmbientColor + 
