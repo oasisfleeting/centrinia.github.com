@@ -251,8 +251,8 @@ $(document).ready(function() {
 			for(var j=0;j<dimension*2;j++) {
 				spanners[i].data[j] = Math.random()*2-1;
 			}
-			angles[i] = Math.random()*Math.PI*2;
-			angle_speeds[i] = Math.random()*Math.PI*2*speed_scale;
+			angles[i] = (Math.random()*2-1)*Math.PI*2;
+			angle_speeds[i] = (Math.random()*2-1)*Math.PI*2*speed_scale;
 		}	
 		ndmv = Matrix.identity(dimension);
 	} 
