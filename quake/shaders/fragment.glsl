@@ -1,6 +1,5 @@
 // fragment.glsl
 
-//precision lowp float;
 precision mediump float;
 
 uniform vec2 texture_size;

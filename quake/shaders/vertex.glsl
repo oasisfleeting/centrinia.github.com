@@ -1,3 +1,6 @@
+// vertex.glsl
+
+precision mediump float;
 
 attribute vec3 aVertexPosition;
 attribute vec3 aVertexNormal;
